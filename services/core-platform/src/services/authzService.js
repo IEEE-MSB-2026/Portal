@@ -9,6 +9,16 @@ function canAssignTask({ identity, membershipRole }) {
   return membershipRole === 'lead';
 }
 
+function canManageCommitteeContent({ identity, membershipRole }) {
+  if (isGlobalAccess(identity)) return true;
+  return membershipRole === 'lead';
+}
+
+function canManageMemberships({ identity, membershipRole }) {
+  if (isGlobalAccess(identity)) return true;
+  return membershipRole === 'lead';
+}
+
 function canUpdateTaskStatus({ identity, membershipRole, task }) {
   if (isGlobalAccess(identity)) {
     return { allowed: true, mode: 'any' };
@@ -42,6 +52,8 @@ async function canReadCommittee(identity, committeeId) {
 
 module.exports = {
   canAssignTask,
+  canManageCommitteeContent,
+  canManageMemberships,
   canReadCommittee,
   canUpdateTaskStatus,
   getMembershipRoleForCommittee,

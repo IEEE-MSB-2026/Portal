@@ -18,7 +18,8 @@ const app = require('../../src/app');
 function materializePath(path) {
   return path
     .replace(':committeeId', IDS.committees.ai)
-    .replace(':taskId', IDS.tasks.aiMemberTodo);
+    .replace(':taskId', IDS.tasks.aiMemberTodo)
+    .replace(':userId', 'member-ai-1');
 }
 
 test.before(async () => {
@@ -52,10 +53,15 @@ test('dashboard: returns only caller committees and assigned tasks', async () =>
     assert.equal(payload.committees.length, 1);
     assert.equal(payload.committees[0].id, IDS.committees.ai);
     assert.equal(payload.tasks.items.length >= 1, true);
+    assert.equal(payload.recentAnnouncements.length >= 1, true);
 
     for (const task of payload.tasks.items) {
       assert.equal(task.committeeId, IDS.committees.ai);
       assert.equal(task.assigneeUserId, 'member-ai-1');
+    }
+
+    for (const announcement of payload.recentAnnouncements) {
+      assert.equal(announcement.committeeId, IDS.committees.ai);
     }
   } finally {
     await new Promise((resolve) => server.close(resolve));

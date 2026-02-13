@@ -31,6 +31,14 @@ const IDS = {
     aiLeadTodo: 'ffffffff-ffff-4fff-8fff-ffffffffffff',
     webMemberTodo: '12121212-1212-4121-8121-121212121212',
   },
+  resources: {
+    aiGuide: '34343434-3434-4343-8343-343434343434',
+    webGuide: '45454545-4545-4454-8454-454545454545',
+  },
+  announcements: {
+    aiWeekly: '56565656-5656-4565-8565-565656565656',
+    webWeekly: '67676767-6767-4676-8676-676767676767',
+  },
 };
 
 let bootstrapPromise;
@@ -48,6 +56,8 @@ async function bootstrapTestDatabase() {
 }
 
 async function resetDatabase() {
+  await query('DELETE FROM committee_announcements');
+  await query('DELETE FROM committee_resources');
   await query('DELETE FROM task_activity_log');
   await query('DELETE FROM tasks');
   await query('DELETE FROM committee_memberships');
@@ -114,6 +124,40 @@ async function seedBaseData() {
       IDS.usersRef.memberAi,
       IDS.usersRef.leadAi,
       IDS.committees.web,
+      IDS.usersRef.memberWeb,
+    ]
+  );
+
+  await query(
+    `
+      INSERT INTO committee_resources (id, committee_id, title, url, description, created_by_user_ref_id)
+      VALUES
+        ($1, $3, 'AI Onboarding Guide', 'https://docs.example.com/ai/onboarding', 'Internal AI onboarding references', $5),
+        ($2, $4, 'Web Handbook', 'https://docs.example.com/web/handbook', 'Web committee handbook', $6)
+    `,
+    [
+      IDS.resources.aiGuide,
+      IDS.resources.webGuide,
+      IDS.committees.ai,
+      IDS.committees.web,
+      IDS.usersRef.leadAi,
+      IDS.usersRef.memberWeb,
+    ]
+  );
+
+  await query(
+    `
+      INSERT INTO committee_announcements (id, committee_id, title, body, created_by_user_ref_id)
+      VALUES
+        ($1, $3, 'AI Weekly Sync', 'Weekly sync moved to Tuesday 7 PM.', $5),
+        ($2, $4, 'Web Sprint Plan', 'Sprint planning starts tomorrow.', $6)
+    `,
+    [
+      IDS.announcements.aiWeekly,
+      IDS.announcements.webWeekly,
+      IDS.committees.ai,
+      IDS.committees.web,
+      IDS.usersRef.leadAi,
       IDS.usersRef.memberWeb,
     ]
   );

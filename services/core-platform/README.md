@@ -28,6 +28,13 @@ npm run dev
 - `GET /core/committees/:committeeId/workspace`
 - `POST /core/committees/:committeeId/tasks`
 - `PATCH /core/tasks/:taskId/status`
+- `GET /core/committees/:committeeId/resources`
+- `POST /core/committees/:committeeId/resources`
+- `GET /core/committees/:committeeId/announcements`
+- `POST /core/committees/:committeeId/announcements`
+- `GET /core/committees/:committeeId/memberships`
+- `POST /core/committees/:committeeId/memberships`
+- `DELETE /core/committees/:committeeId/memberships/:userId`
 - `GET /core/routes`
 
 ## Gateway trust contract
