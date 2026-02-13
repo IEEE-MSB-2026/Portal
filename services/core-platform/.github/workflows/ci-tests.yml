@@ -1,0 +1,56 @@
+name: core-platform-tests
+
+on:
+  push:
+    paths:
+      - 'services/core-platform/**'
+  pull_request:
+    paths:
+      - 'services/core-platform/**'
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: core
+          POSTGRES_PASSWORD: core
+          POSTGRES_DB: core_platform_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U core -d core_platform_ci"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        working-directory: services/core-platform
+        run: npm install
+
+      - name: Migration smoke (ephemeral Postgres)
+        working-directory: services/core-platform
+        env:
+          PORT: 5070
+          DATABASE_URL: postgres://core:core@localhost:5432/core_platform_ci
+          CORE_GATEWAY_SHARED_SECRET: ci-shared-secret
+        run: npm run migrate
+
+      - name: Run tests
+        working-directory: services/core-platform
+        env:
+          NODE_ENV: test
+          PORT: 5070
+          CORE_USE_PGMEM: 'true'
+          DATABASE_URL: postgres://unused/unused
+          CORE_GATEWAY_SHARED_SECRET: ci-shared-secret
+        run: npm test
