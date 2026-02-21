@@ -9,6 +9,7 @@ const membershipController = require('../controllers/membershipController');
 const hrCampaignController = require('../controllers/hrCampaignController');
 const hrApplicationController = require('../controllers/hrApplicationController');
 const hrOnboardingController = require('../controllers/hrOnboardingController');
+const hrReportsController = require('../controllers/hrReportsController');
 const routesController = require('../controllers/routesController');
 const { attachUserRef, requireCommitteeScope, verifyGatewaySignature } = require('../middlewares/gatewayAuth');
 
@@ -37,6 +38,8 @@ router.post('/hr/applications/:applicationId/accept', hrApplicationController.ac
 router.post('/hr/applications/:applicationId/reject', hrApplicationController.rejectApplication);
 router.get('/hr/onboarding/:userId', hrOnboardingController.listOnboardingByUser);
 router.patch('/hr/onboarding/:itemId', hrOnboardingController.updateOnboardingItem);
+router.get('/hr/reports/pipeline-summary', hrReportsController.getPipelineSummary);
+router.get('/hr/reports/pipeline-timeline', hrReportsController.getPipelineTimeline);
 router.get('/routes', routesController.getCoreRoutes);
 
 module.exports = router;
