@@ -6,6 +6,7 @@ const tasksRepository = require('../repositories/tasksRepository');
 const usersRepository = require('../repositories/usersRepository');
 const taskActivityRepository = require('../repositories/taskActivityRepository');
 const authzService = require('../services/authzService');
+const emailNotificationService = require('../services/emailNotificationService');
 
 const ALLOWED_TASK_STATUSES = new Set(['todo', 'in_progress', 'done']);
 const OWN_TRANSITIONS = {
@@ -101,6 +102,30 @@ async function createTask(req, res, next) {
       actorUserId: req.identity.externalUserId,
       assigneeUserId: payload.assigneeUserId,
     });
+
+    const notificationResult = await emailNotificationService.sendTaskAssignmentNotification({
+      requestId: req.requestId,
+      route: req.originalUrl || `${req.baseUrl || ''}${req.path || ''}`,
+      committeeName: committee.name,
+      taskId: task.id,
+      taskTitle: task.title,
+      taskDescription: task.description,
+      taskDueAt: task.due_at,
+      assigneeExternalUserId: payload.assigneeUserId,
+      assigneeEmail: assigneeUserRef.email,
+      actorExternalUserId: req.identity.externalUserId,
+    });
+
+    if (!notificationResult.ok) {
+      logger.warn({
+        event: 'task.assignment.notification.undelivered',
+        requestId: req.requestId,
+        taskId: task.id,
+        targetEmail: notificationResult.recipientEmail || assigneeUserRef.email || null,
+        reason: notificationResult.reason,
+        statusCode: notificationResult.statusCode,
+      }, 'Task assignment email notification was skipped or failed');
+    }
 
     return res.status(201).json({
       task: {

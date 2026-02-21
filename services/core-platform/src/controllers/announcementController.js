@@ -3,7 +3,9 @@ const { HttpError } = require('../utils/httpErrors');
 const { isUuid } = require('../utils/ids');
 const committeesRepository = require('../repositories/committeesRepository');
 const announcementsRepository = require('../repositories/announcementsRepository');
+const membershipsRepository = require('../repositories/membershipsRepository');
 const authzService = require('../services/authzService');
+const emailNotificationService = require('../services/emailNotificationService');
 
 function parseAnnouncementInput(body) {
   const title = typeof body.title === 'string' ? body.title.trim() : '';
@@ -72,6 +74,32 @@ async function createCommitteeAnnouncement(req, res, next) {
       announcementId: announcement.id,
       actorUserId: req.identity.externalUserId,
     });
+
+    const memberships = await membershipsRepository.listMembershipsByCommittee(committeeId);
+    const notificationResult = await emailNotificationService.sendCommitteeAnnouncementNotifications({
+      requestId: req.requestId,
+      route: req.originalUrl || `${req.baseUrl || ''}${req.path || ''}`,
+      committeeName: committee.name,
+      announcementId: announcement.id,
+      announcementTitle: announcement.title,
+      announcementBody: announcement.body,
+      actorExternalUserId: req.identity.externalUserId,
+      actorEmail: req.identity.email,
+      recipientEmails: memberships.map((membership) => membership.email),
+    });
+
+    if (!notificationResult.ok) {
+      logger.warn({
+        event: 'committee.announcement.notification.undelivered',
+        requestId: req.requestId,
+        committeeId,
+        announcementId: announcement.id,
+        reason: notificationResult.reason,
+        sentCount: notificationResult.sentCount,
+        failedCount: notificationResult.failedCount,
+        skippedCount: notificationResult.skippedCount,
+      }, 'Committee announcement email notifications were partially delivered or skipped');
+    }
 
     return res.status(201).json({
       announcement: {

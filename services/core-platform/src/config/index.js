@@ -1,4 +1,5 @@
 require('dotenv').config();
+const { URL } = require('node:url');
 
 function requireEnv(name) {
   const value = process.env[name];
@@ -16,6 +17,43 @@ function parsePort(value) {
   return parsed;
 }
 
+function optionalEnv(name) {
+  const value = process.env[name];
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  return trimmed ? trimmed : null;
+}
+
+function parseOptionalUrl(name) {
+  const value = optionalEnv(name);
+  if (!value) return null;
+
+  let parsed;
+  try {
+    parsed = new URL(value);
+  } catch (error) {
+    throw new Error(`${name} must be a valid URL`);
+  }
+
+  if (!['http:', 'https:'].includes(parsed.protocol)) {
+    throw new Error(`${name} must start with http:// or https://`);
+  }
+
+  return parsed.toString();
+}
+
+function parsePositiveInteger(name, defaultValue) {
+  const value = optionalEnv(name);
+  if (!value) return defaultValue;
+
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    throw new Error(`${name} must be a positive integer`);
+  }
+
+  return parsed;
+}
+
 const config = {
   env: process.env.NODE_ENV || 'development',
   logLevel: process.env.LOG_LEVEL || 'info',
@@ -23,6 +61,11 @@ const config = {
   databaseUrl: requireEnv('DATABASE_URL'),
   gatewaySharedSecret: requireEnv('CORE_GATEWAY_SHARED_SECRET'),
   gatewayMaxSkewSeconds: 60,
+  notification: {
+    emailServiceUrl: parseOptionalUrl('EMAIL_SERVICE_URL'),
+    emailServiceAuthToken: optionalEnv('EMAIL_SERVICE_AUTH_TOKEN'),
+    emailServiceTimeoutMs: parsePositiveInteger('EMAIL_SERVICE_TIMEOUT_MS', 3000),
+  },
 };
 
 module.exports = config;

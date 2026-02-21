@@ -1,11 +1,13 @@
-# Core Platform Service (Phase 03 Slice 1)
+# Core Platform Service (Phase 03)
 
 Core internal service for member workspaces.
 
-## Scope in this slice
+## Scope in this phase
 - Committee isolation enforcement
 - Member dashboard aggregation
 - Task assignment and status updates
+- Committee resources, announcements, and memberships
+- Best-effort email notifications for task assignment and committee announcements
 
 ## Quick start
 ```bash
@@ -20,6 +22,13 @@ npm run dev
 - `PORT`
 - `DATABASE_URL`
 - `CORE_GATEWAY_SHARED_SECRET`
+
+## Optional notification environment variables
+- `EMAIL_SERVICE_URL`: base URL for `email-service` (example: `http://localhost:5060`)
+- `EMAIL_SERVICE_AUTH_TOKEN`: service-to-service auth token sent as `x-service-token`
+- `EMAIL_SERVICE_TIMEOUT_MS`: outbound timeout in milliseconds (default: `3000`)
+
+Notifications are auto-enabled only when both `EMAIL_SERVICE_URL` and `EMAIL_SERVICE_AUTH_TOKEN` are configured.
 
 ## Endpoints
 - `GET /health`
