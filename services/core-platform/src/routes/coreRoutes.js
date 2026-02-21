@@ -8,6 +8,7 @@ const announcementController = require('../controllers/announcementController');
 const membershipController = require('../controllers/membershipController');
 const hrCampaignController = require('../controllers/hrCampaignController');
 const hrApplicationController = require('../controllers/hrApplicationController');
+const hrOnboardingController = require('../controllers/hrOnboardingController');
 const routesController = require('../controllers/routesController');
 const { attachUserRef, requireCommitteeScope, verifyGatewaySignature } = require('../middlewares/gatewayAuth');
 
@@ -32,7 +33,10 @@ router.patch('/hr/campaigns/:campaignId/status', hrCampaignController.updateCamp
 router.post('/hr/applications', hrApplicationController.createApplication);
 router.get('/hr/applications', hrApplicationController.listApplications);
 router.patch('/hr/applications/:applicationId/stage', hrApplicationController.updateApplicationStage);
+router.post('/hr/applications/:applicationId/accept', hrApplicationController.acceptApplication);
 router.post('/hr/applications/:applicationId/reject', hrApplicationController.rejectApplication);
+router.get('/hr/onboarding/:userId', hrOnboardingController.listOnboardingByUser);
+router.patch('/hr/onboarding/:itemId', hrOnboardingController.updateOnboardingItem);
 router.get('/routes', routesController.getCoreRoutes);
 
 module.exports = router;

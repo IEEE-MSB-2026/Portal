@@ -15,7 +15,10 @@ const coreRoutesCatalog = [
   { method: 'POST', path: '/core/hr/applications', description: 'Submit HR campaign application' },
   { method: 'GET', path: '/core/hr/applications', description: 'List HR applications by scope' },
   { method: 'PATCH', path: '/core/hr/applications/:applicationId/stage', description: 'Update HR application stage' },
+  { method: 'POST', path: '/core/hr/applications/:applicationId/accept', description: 'Accept HR application' },
   { method: 'POST', path: '/core/hr/applications/:applicationId/reject', description: 'Reject HR application' },
+  { method: 'GET', path: '/core/hr/onboarding/:userId', description: 'List onboarding checklist for user' },
+  { method: 'PATCH', path: '/core/hr/onboarding/:itemId', description: 'Update onboarding checklist item status' },
   { method: 'GET', path: '/core/routes', description: 'List core route contracts' },
 ];
 

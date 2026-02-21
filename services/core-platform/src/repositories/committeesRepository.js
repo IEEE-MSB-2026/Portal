@@ -47,9 +47,24 @@ async function isMemberOfCommittee(userRefId, committeeId) {
   return Boolean(role);
 }
 
+async function listCommitteeIdsForUserRole(userRefId, roleInCommittee) {
+  const result = await query(
+    `
+      SELECT committee_id
+      FROM committee_memberships
+      WHERE user_ref_id = $1 AND role_in_committee = $2
+      ORDER BY committee_id ASC
+    `,
+    [userRefId, roleInCommittee]
+  );
+
+  return result.rows.map((row) => row.committee_id);
+}
+
 module.exports = {
   getCommitteeById,
   getMembershipRole,
   isMemberOfCommittee,
+  listCommitteeIdsForUserRole,
   listCommitteesForUser,
 };

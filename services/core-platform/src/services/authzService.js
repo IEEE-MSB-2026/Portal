@@ -75,7 +75,29 @@ function canSubmitHrApplication(identity) {
   return APPLICANT_ROLES.has(identity.role);
 }
 
+function canAcceptHrApplication({ identity, membershipRole, governanceMode }) {
+  if (governanceMode === 'mode_a') {
+    return canManageHrCommittee({ identity, membershipRole });
+  }
+
+  return isPrivilegedGlobalAccess(identity);
+}
+
+async function listManageableHrCommitteeIds(identity) {
+  if (isPrivilegedGlobalAccess(identity)) return null;
+  if (!identity?.userRefId) return [];
+
+  if (identity.scopeType === 'committee') {
+    const membershipRole = await getMembershipRoleForCommittee(identity, identity.scopeId);
+    const canManage = canManageHrCommittee({ identity, membershipRole });
+    return canManage ? [identity.scopeId] : [];
+  }
+
+  return committeesRepository.listCommitteeIdsForUserRole(identity.userRefId, 'lead');
+}
+
 module.exports = {
+  canAcceptHrApplication,
   canAssignTask,
   canManageHrCommittee,
   canManageCommitteeContent,
@@ -86,4 +108,5 @@ module.exports = {
   getMembershipRoleForCommittee,
   isGlobalAccess,
   isPrivilegedGlobalAccess,
+  listManageableHrCommitteeIds,
 };

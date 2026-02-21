@@ -54,6 +54,18 @@ function parsePositiveInteger(name, defaultValue) {
   return parsed;
 }
 
+function parseEnum(name, allowedValues, defaultValue) {
+  const value = optionalEnv(name);
+  if (!value) return defaultValue;
+
+  const normalized = value.toLowerCase();
+  if (!allowedValues.includes(normalized)) {
+    throw new Error(`${name} must be one of: ${allowedValues.join(', ')}`);
+  }
+
+  return normalized;
+}
+
 const config = {
   env: process.env.NODE_ENV || 'development',
   logLevel: process.env.LOG_LEVEL || 'info',
@@ -65,6 +77,14 @@ const config = {
     emailServiceUrl: parseOptionalUrl('EMAIL_SERVICE_URL'),
     emailServiceAuthToken: optionalEnv('EMAIL_SERVICE_AUTH_TOKEN'),
     emailServiceTimeoutMs: parsePositiveInteger('EMAIL_SERVICE_TIMEOUT_MS', 3000),
+  },
+  iam: {
+    serviceUrl: parseOptionalUrl('IAM_SERVICE_URL'),
+    serviceAuthToken: optionalEnv('IAM_SERVICE_AUTH_TOKEN'),
+    serviceTimeoutMs: parsePositiveInteger('IAM_SERVICE_TIMEOUT_MS', 3000),
+  },
+  hr: {
+    acceptGovernanceMode: parseEnum('HR_ACCEPT_GOVERNANCE_MODE', ['mode_a', 'mode_b'], 'mode_b'),
   },
 };
 

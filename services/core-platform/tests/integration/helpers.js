@@ -58,6 +58,7 @@ async function bootstrapTestDatabase() {
 }
 
 async function resetDatabase() {
+  await query('DELETE FROM hr_onboarding_items');
   await query('DELETE FROM hr_application_stage_log');
   await query('DELETE FROM hr_applications');
   await query('DELETE FROM hr_campaigns');

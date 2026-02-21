@@ -1,20 +1,47 @@
+const config = require('../config');
 const logger = require('../utils/logger');
 const { HttpError } = require('../utils/httpErrors');
 const { isUuid } = require('../utils/ids');
 const { parseLimit } = require('../utils/pagination');
 const authzService = require('../services/authzService');
+const iamRoleAssignmentService = require('../services/iamRoleAssignmentService');
+const emailNotificationService = require('../services/emailNotificationService');
 const hrCampaignsRepository = require('../repositories/hrCampaignsRepository');
 const hrApplicationsRepository = require('../repositories/hrApplicationsRepository');
 const hrStageLogRepository = require('../repositories/hrStageLogRepository');
 
-const ALLOWED_STAGES = new Set(['applied', 'screening', 'interview', 'final_review', 'rejected']);
+const ALLOWED_STAGES = new Set(['applied', 'screening', 'interview', 'final_review', 'rejected', 'accepted']);
 const STAGE_TRANSITIONS = {
   applied: new Set(['screening']),
   screening: new Set(['interview']),
   interview: new Set(['final_review']),
   final_review: new Set([]),
   rejected: new Set([]),
+  accepted: new Set([]),
 };
+const ACCEPTABLE_STAGE = 'final_review';
+const ONBOARDING_CHECKLIST_TEMPLATE = [
+  {
+    templateKey: 'join_channels',
+    title: 'Join committee communication channels',
+    sortOrder: 1,
+  },
+  {
+    templateKey: 'read_handbook',
+    title: 'Read committee handbook and policies',
+    sortOrder: 2,
+  },
+  {
+    templateKey: 'attend_intro',
+    title: 'Attend onboarding introduction meeting',
+    sortOrder: 3,
+  },
+  {
+    templateKey: 'complete_first_task',
+    title: 'Complete first committee task',
+    sortOrder: 4,
+  },
+];
 
 function isNowWithinCampaignWindow(campaign, now = new Date()) {
   const opensAt = new Date(campaign.opens_at).getTime();
@@ -64,11 +91,15 @@ function parseStageInput(body) {
   const score = body.score;
 
   if (!ALLOWED_STAGES.has(stage)) {
-    throw new HttpError(400, 'stage must be one of applied, screening, interview, final_review, rejected');
+    throw new HttpError(400, 'stage must be one of applied, screening, interview, final_review, rejected, accepted');
   }
 
   if (stage === 'rejected') {
     throw new HttpError(400, 'Use reject endpoint for rejected stage');
+  }
+
+  if (stage === 'accepted') {
+    throw new HttpError(400, 'Use accept endpoint for accepted stage');
   }
 
   if (score !== undefined && (!Number.isInteger(score) || score < 0 || score > 100)) {
@@ -83,6 +114,11 @@ function parseStageInput(body) {
 }
 
 function parseRejectInput(body) {
+  const notes = typeof body.notes === 'string' ? body.notes.trim() : '';
+  return { notes: notes || null };
+}
+
+function parseAcceptInput(body) {
   const notes = typeof body.notes === 'string' ? body.notes.trim() : '';
   return { notes: notes || null };
 }
@@ -273,6 +309,112 @@ async function updateApplicationStage(req, res, next) {
   }
 }
 
+async function acceptApplication(req, res, next) {
+  try {
+    const applicationId = req.params.applicationId;
+    if (!isUuid(applicationId)) {
+      throw new HttpError(400, 'Invalid applicationId format');
+    }
+
+    const payload = parseAcceptInput(req.body || {});
+    const application = await hrApplicationsRepository.getApplicationById(applicationId);
+    if (!application) {
+      throw new HttpError(404, 'Application not found');
+    }
+
+    const membershipRole = await authzService.getMembershipRoleForCommittee(req.identity, application.committee_id);
+    const canAccept = authzService.canAcceptHrApplication({
+      identity: req.identity,
+      membershipRole,
+      governanceMode: config.hr.acceptGovernanceMode,
+    });
+    if (!canAccept) {
+      throw new HttpError(403, 'Forbidden');
+    }
+
+    if (application.current_stage === 'accepted') {
+      return res.status(200).json({ application: toApplicationResponse(application) });
+    }
+
+    if (application.current_stage !== ACCEPTABLE_STAGE) {
+      throw new HttpError(400, 'Only applications in final_review can be accepted');
+    }
+
+    const iamAssignment = await iamRoleAssignmentService.assignCommitteeMemberRole({
+      requestId: req.requestId,
+      route: req.originalUrl || `${req.baseUrl || ''}${req.path || ''}`,
+      applicationId,
+      applicantExternalUserId: application.applicant_external_user_id,
+      committeeId: application.committee_id,
+    });
+
+    if (!iamAssignment.ok) {
+      if (iamAssignment.reason === 'not_configured') {
+        throw new HttpError(503, 'HR acceptance is unavailable');
+      }
+      throw new HttpError(502, 'Failed to complete acceptance');
+    }
+
+    const acceptanceResult = await hrApplicationsRepository.acceptApplicationWithChecklist({
+      applicationId,
+      actorUserRefId: req.identity.userRefId,
+      notes: payload.notes,
+      checklistItems: ONBOARDING_CHECKLIST_TEMPLATE,
+    });
+
+    if (acceptanceResult.status === 'not_found') {
+      throw new HttpError(404, 'Application not found');
+    }
+
+    if (acceptanceResult.status === 'already_accepted') {
+      return res.status(200).json({
+        application: toApplicationResponse(acceptanceResult.application),
+      });
+    }
+
+    if (acceptanceResult.status === 'invalid_transition') {
+      throw new HttpError(400, 'Only applications in final_review can be accepted');
+    }
+
+    logger.info({
+      event: 'hr.application.accepted',
+      requestId: req.requestId,
+      applicationId,
+      campaignId: acceptanceResult.application.campaign_id,
+      committeeId: acceptanceResult.application.committee_id,
+      actorUserId: req.identity.externalUserId,
+    });
+
+    const onboardingNotification = await emailNotificationService.sendOnboardingChecklistNotification({
+      requestId: req.requestId,
+      route: req.originalUrl || `${req.baseUrl || ''}${req.path || ''}`,
+      applicationId,
+      committeeName: acceptanceResult.application.committee_name,
+      recipientEmail: acceptanceResult.application.applicant_email,
+      applicantExternalUserId: acceptanceResult.application.applicant_external_user_id,
+      checklistItems: ONBOARDING_CHECKLIST_TEMPLATE.map((item) => item.title),
+    });
+
+    if (!onboardingNotification.ok) {
+      logger.warn({
+        event: 'hr.application.accept.notification.undelivered',
+        requestId: req.requestId,
+        applicationId,
+        targetEmail: onboardingNotification.recipientEmail || acceptanceResult.application.applicant_email || null,
+        reason: onboardingNotification.reason,
+        statusCode: onboardingNotification.statusCode,
+      }, 'Onboarding email notification was skipped or failed');
+    }
+
+    const acceptedApplication = await hrApplicationsRepository.getApplicationById(applicationId);
+    return res.status(200).json({
+      application: toApplicationResponse(acceptedApplication),
+    });
+  } catch (error) {
+    return next(error);
+  }
+}
+
 async function rejectApplication(req, res, next) {
   try {
     const applicationId = req.params.applicationId;
@@ -290,6 +432,10 @@ async function rejectApplication(req, res, next) {
 
     if (application.current_stage === 'rejected') {
       throw new HttpError(400, 'Application is already rejected');
+    }
+
+    if (application.current_stage === 'accepted') {
+      throw new HttpError(400, 'Application is already accepted');
     }
 
     const updated = await hrApplicationsRepository.updateApplicationStage(application.id, 'rejected');
@@ -329,6 +475,7 @@ async function rejectApplication(req, res, next) {
 }
 
 module.exports = {
+  acceptApplication,
   createApplication,
   listApplications,
   rejectApplication,

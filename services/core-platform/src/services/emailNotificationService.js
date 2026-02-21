@@ -76,6 +76,24 @@ function buildAnnouncementText({
   return lines.join('\n');
 }
 
+function buildOnboardingText({
+  committeeName,
+  applicantExternalUserId,
+  checklistItems,
+}) {
+  const lines = [
+    `Committee: ${committeeName}`,
+    `Welcome to the committee, ${applicantExternalUserId}.`,
+    'Your onboarding checklist has been created with the following items:',
+  ];
+
+  for (const item of checklistItems || []) {
+    lines.push(`- ${item}`);
+  }
+
+  return lines.join('\n');
+}
+
 function buildPayload({ recipientEmail, subject, text, eventType, idempotencyKey }) {
   return {
     schemaVersion: '1.0',
@@ -308,8 +326,49 @@ async function sendCommitteeAnnouncementNotifications({
   };
 }
 
+async function sendOnboardingChecklistNotification({
+  requestId,
+  route,
+  applicationId,
+  committeeName,
+  recipientEmail,
+  applicantExternalUserId,
+  checklistItems,
+}) {
+  if (!isEnabled()) {
+    return { ok: false, reason: 'not_configured' };
+  }
+
+  const normalizedRecipient = normalizeEmail(recipientEmail);
+  if (!normalizedRecipient) {
+    return { ok: false, reason: 'invalid_recipient', recipientEmail: recipientEmail || null };
+  }
+
+  const payload = buildPayload({
+    recipientEmail: normalizedRecipient,
+    subject: `[${committeeName}] Onboarding checklist is ready`,
+    text: buildOnboardingText({
+      committeeName,
+      applicantExternalUserId,
+      checklistItems,
+    }),
+    eventType: 'core.hr.onboarding.created',
+    idempotencyKey: `core-hr-onboarding:${applicationId}:${normalizedRecipient}`,
+  });
+
+  const result = await postEmail(payload, {
+    requestId,
+    route,
+    notificationType: 'hr_onboarding',
+    recipientEmail: normalizedRecipient,
+  });
+
+  return { ...result, recipientEmail: normalizedRecipient };
+}
+
 module.exports = {
   isEnabled,
+  sendOnboardingChecklistNotification,
   sendTaskAssignmentNotification,
   sendCommitteeAnnouncementNotifications,
 };
