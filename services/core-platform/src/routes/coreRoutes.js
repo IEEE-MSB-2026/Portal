@@ -6,6 +6,8 @@ const taskController = require('../controllers/taskController');
 const resourceController = require('../controllers/resourceController');
 const announcementController = require('../controllers/announcementController');
 const membershipController = require('../controllers/membershipController');
+const hrCampaignController = require('../controllers/hrCampaignController');
+const hrApplicationController = require('../controllers/hrApplicationController');
 const routesController = require('../controllers/routesController');
 const { attachUserRef, requireCommitteeScope, verifyGatewaySignature } = require('../middlewares/gatewayAuth');
 
@@ -25,6 +27,12 @@ router.get('/committees/:committeeId/memberships', requireCommitteeScope('commit
 router.post('/committees/:committeeId/memberships', requireCommitteeScope('committeeId'), membershipController.upsertCommitteeMembership);
 router.delete('/committees/:committeeId/memberships/:userId', requireCommitteeScope('committeeId'), membershipController.removeCommitteeMembership);
 router.patch('/tasks/:taskId/status', taskController.updateTaskStatus);
+router.post('/hr/campaigns', hrCampaignController.createCampaign);
+router.patch('/hr/campaigns/:campaignId/status', hrCampaignController.updateCampaignStatus);
+router.post('/hr/applications', hrApplicationController.createApplication);
+router.get('/hr/applications', hrApplicationController.listApplications);
+router.patch('/hr/applications/:applicationId/stage', hrApplicationController.updateApplicationStage);
+router.post('/hr/applications/:applicationId/reject', hrApplicationController.rejectApplication);
 router.get('/routes', routesController.getCoreRoutes);
 
 module.exports = router;

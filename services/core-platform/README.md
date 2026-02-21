@@ -44,6 +44,12 @@ Notifications are auto-enabled only when both `EMAIL_SERVICE_URL` and `EMAIL_SER
 - `GET /core/committees/:committeeId/memberships`
 - `POST /core/committees/:committeeId/memberships`
 - `DELETE /core/committees/:committeeId/memberships/:userId`
+- `POST /core/hr/campaigns`
+- `PATCH /core/hr/campaigns/:campaignId/status`
+- `POST /core/hr/applications`
+- `GET /core/hr/applications`
+- `PATCH /core/hr/applications/:applicationId/stage`
+- `POST /core/hr/applications/:applicationId/reject`
 - `GET /core/routes`
 
 ## Gateway trust contract
@@ -63,6 +69,10 @@ method\npath\nx-user-id\nx-user-role\nx-scope-type\nx-scope-id\nx-gateway-timest
 
 - Algorithm: HMAC-SHA256
 - Replay protection: request rejected if timestamp skew is greater than 60 seconds.
+- Role aliases accepted for compatibility:
+  - `organizer` -> `event_organizer`
+  - `scanner` -> `event_scanner`
+  - `content_editor` -> `editor`
 
 ## Signed request example
 ```js

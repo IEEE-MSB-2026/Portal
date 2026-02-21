@@ -2,6 +2,8 @@ const config = require('../config');
 const { verifyGatewayRequest } = require('../auth/gatewayContract');
 const usersRepository = require('../repositories/usersRepository');
 
+const GLOBAL_COMMITTEE_BYPASS_ROLES = new Set(['admin', 'officer']);
+
 function verifyGatewaySignature(req, res, next) {
   try {
     const identity = verifyGatewayRequest({
@@ -55,6 +57,9 @@ function requireCommitteeScope(committeeIdParam = 'committeeId') {
     }
 
     if (req.identity.scopeType === 'global') {
+      if (!GLOBAL_COMMITTEE_BYPASS_ROLES.has(req.identity.role)) {
+        return res.status(403).json({ error: 'Forbidden' });
+      }
       return next();
     }
 

@@ -19,6 +19,8 @@ function materializePath(path) {
   return path
     .replace(':committeeId', IDS.committees.ai)
     .replace(':taskId', IDS.tasks.aiMemberTodo)
+    .replace(':campaignId', '78787878-7878-4787-8787-787878787878')
+    .replace(':applicationId', '89898989-8989-4898-8898-898989898989')
     .replace(':userId', 'member-ai-1');
 }
 

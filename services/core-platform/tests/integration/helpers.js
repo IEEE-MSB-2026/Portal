@@ -19,9 +19,11 @@ const IDS = {
   committees: {
     ai: '11111111-1111-4111-8111-111111111111',
     web: '22222222-2222-4222-8222-222222222222',
+    hr: '32323232-3232-4323-8323-323232323232',
   },
   usersRef: {
     admin: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+    officer: 'abababab-abab-4aba-8aba-abababababab',
     leadAi: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
     memberAi: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
     memberWeb: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
@@ -56,6 +58,9 @@ async function bootstrapTestDatabase() {
 }
 
 async function resetDatabase() {
+  await query('DELETE FROM hr_application_stage_log');
+  await query('DELETE FROM hr_applications');
+  await query('DELETE FROM hr_campaigns');
   await query('DELETE FROM committee_announcements');
   await query('DELETE FROM committee_resources');
   await query('DELETE FROM task_activity_log');
@@ -71,11 +76,12 @@ async function seedBaseData() {
       INSERT INTO users_ref (id, external_user_id, email)
       VALUES
         ($1, 'admin-1', 'admin@ieee.local'),
-        ($2, 'lead-ai-1', 'lead.ai@ieee.local'),
-        ($3, 'member-ai-1', 'member.ai@ieee.local'),
-        ($4, 'member-web-1', 'member.web@ieee.local')
+        ($2, 'officer-1', 'officer@ieee.local'),
+        ($3, 'lead-ai-1', 'lead.ai@ieee.local'),
+        ($4, 'member-ai-1', 'member.ai@ieee.local'),
+        ($5, 'member-web-1', 'member.web@ieee.local')
     `,
-    [IDS.usersRef.admin, IDS.usersRef.leadAi, IDS.usersRef.memberAi, IDS.usersRef.memberWeb]
+    [IDS.usersRef.admin, IDS.usersRef.officer, IDS.usersRef.leadAi, IDS.usersRef.memberAi, IDS.usersRef.memberWeb]
   );
 
   await query(
@@ -83,27 +89,31 @@ async function seedBaseData() {
       INSERT INTO committees (id, slug, name, is_active)
       VALUES
         ($1, 'ai', 'AI Committee', TRUE),
-        ($2, 'web', 'Web Committee', TRUE)
+        ($2, 'web', 'Web Committee', TRUE),
+        ($3, 'hr', 'HR Committee', TRUE)
     `,
-    [IDS.committees.ai, IDS.committees.web]
+    [IDS.committees.ai, IDS.committees.web, IDS.committees.hr]
   );
 
   await query(
     `
       INSERT INTO committee_memberships (id, committee_id, user_ref_id, role_in_committee)
       VALUES
-        ($1, $3, $5, 'lead'),
-        ($2, $3, $6, 'member'),
-        ($4, $7, $8, 'member')
+        ($1, $5, $8, 'lead'),
+        ($2, $5, $9, 'member'),
+        ($3, $6, $10, 'member'),
+        ($4, $7, $8, 'lead')
     `,
     [
       randomUUID(),
       randomUUID(),
-      IDS.committees.ai,
       randomUUID(),
+      randomUUID(),
+      IDS.committees.ai,
+      IDS.committees.web,
+      IDS.committees.hr,
       IDS.usersRef.leadAi,
       IDS.usersRef.memberAi,
-      IDS.committees.web,
       IDS.usersRef.memberWeb,
     ]
   );

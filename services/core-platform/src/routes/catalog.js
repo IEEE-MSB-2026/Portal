@@ -10,6 +10,12 @@ const coreRoutesCatalog = [
   { method: 'GET', path: '/core/committees/:committeeId/memberships', description: 'List committee memberships' },
   { method: 'POST', path: '/core/committees/:committeeId/memberships', description: 'Upsert committee membership' },
   { method: 'DELETE', path: '/core/committees/:committeeId/memberships/:userId', description: 'Remove committee membership' },
+  { method: 'POST', path: '/core/hr/campaigns', description: 'Create HR recruitment campaign' },
+  { method: 'PATCH', path: '/core/hr/campaigns/:campaignId/status', description: 'Update HR campaign status' },
+  { method: 'POST', path: '/core/hr/applications', description: 'Submit HR campaign application' },
+  { method: 'GET', path: '/core/hr/applications', description: 'List HR applications by scope' },
+  { method: 'PATCH', path: '/core/hr/applications/:applicationId/stage', description: 'Update HR application stage' },
+  { method: 'POST', path: '/core/hr/applications/:applicationId/reject', description: 'Reject HR application' },
   { method: 'GET', path: '/core/routes', description: 'List core route contracts' },
 ];
 

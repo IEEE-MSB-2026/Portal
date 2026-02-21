@@ -10,7 +10,21 @@ const REQUIRED_HEADERS = [
   'x-gateway-signature',
 ];
 
-const ALLOWED_ROLES = new Set(['admin', 'lead', 'member']);
+const ROLE_ALIASES = {
+  organizer: 'event_organizer',
+  scanner: 'event_scanner',
+  content_editor: 'editor',
+};
+const ALLOWED_ROLES = new Set([
+  'admin',
+  'officer',
+  'lead',
+  'member',
+  'editor',
+  'publisher',
+  'event_organizer',
+  'event_scanner',
+]);
 const ALLOWED_SCOPE_TYPES = new Set(['global', 'committee']);
 
 function normalizeHeader(value) {
@@ -51,6 +65,11 @@ function parseTimestamp(raw) {
   return parsed;
 }
 
+function normalizeRole(rawRole) {
+  const alias = ROLE_ALIASES[rawRole];
+  return alias || rawRole;
+}
+
 function verifyGatewayRequest({ method, path, headers, secret, maxSkewSeconds }) {
   const normalized = {};
   for (const header of REQUIRED_HEADERS) {
@@ -61,7 +80,8 @@ function verifyGatewayRequest({ method, path, headers, secret, maxSkewSeconds })
     normalized[header] = value;
   }
 
-  const role = normalized['x-user-role'];
+  const rawRole = normalized['x-user-role'];
+  const role = normalizeRole(rawRole);
   if (!ALLOWED_ROLES.has(role)) {
     throw new Error('Invalid user role');
   }
@@ -89,7 +109,7 @@ function verifyGatewayRequest({ method, path, headers, secret, maxSkewSeconds })
     method,
     path,
     userId: normalized['x-user-id'],
-    userRole: role,
+    userRole: rawRole,
     scopeType,
     scopeId,
     timestamp,
