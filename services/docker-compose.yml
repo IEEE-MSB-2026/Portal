@@ -1,0 +1,115 @@
+version: '3.9'
+
+services:
+  # ==========================================
+  # EMAIL SERVICE
+  # ==========================================
+  email-redis:
+    image: redis:7-alpine
+    container_name: email-redis
+    restart: unless-stopped
+    volumes:
+      - email_redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+
+  email-api:
+    build:
+      context: ./email-service
+      dockerfile: Dockerfile
+    container_name: email-api
+    restart: unless-stopped
+    env_file:
+      - ./email-service/.env
+    environment:
+      REDIS_HOST: email-redis
+      RUN_API: "true"
+      RUN_CONSUMER: "false"
+    ports:
+      - "${EMAIL_SERVICE_PORT:-5060}:5060"
+    depends_on:
+      email-redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:5060/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  email-consumer:
+    build:
+      context: ./email-service
+      dockerfile: Dockerfile
+    container_name: email-consumer
+    profiles: ["email-broker"]
+    restart: unless-stopped
+    env_file:
+      - ./email-service/.env
+    environment:
+      REDIS_HOST: email-redis
+      RUN_API: "false"
+      RUN_CONSUMER: "true"
+    depends_on:
+      email-redis:
+        condition: service_healthy
+
+  # ==========================================
+  # EVENT REGISTER SERVICE
+  # ==========================================
+  event-app:
+    build: ./event-register
+    container_name: event-register-app
+    env_file:
+      - ./event-register/.env
+    restart: unless-stopped
+    ports:
+      - "5050:5050" # Changed from expose to ports since Nginx is removed
+    environment:
+      NODE_ENV: production
+      PORT: 5050
+      MONGO_URI: mongodb://event-mongo:27017/ieee-registration
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-change-me-strong-password}
+      REDIS_URL: redis://:${REDIS_PASSWORD:-change-me-strong-password}@event-redis:6379
+      REDIS_STREAM_EMAIL: internal
+      EMAIL_SERVICE_URL: ${EMAIL_SERVICE_URL:-http://email-api:5060} # Pointed directly to email-api container
+      EMAIL_SERVICE_AUTH_TOKEN: ${EMAIL_SERVICE_AUTH_TOKEN:-2nUcG0xRi652tH8Y1RW/lsA2+BOvli2RvbNSfeMwl1Q=}
+    depends_on:
+      - event-mongo
+      - event-redis
+    volumes:
+      - event_uploads:/app/uploads
+
+  event-mongo:
+    image: mongo:7
+    container_name: event-register-mongo
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    volumes:
+      - event_mongo_data:/data/db
+
+  event-redis:
+    image: redis:7-alpine
+    container_name: event-register-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    environment:
+      - REDIS_PASSWORD=${REDIS_PASSWORD:-change-me-strong-password}
+    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD:-change-me-strong-password}"]
+    volumes:
+      - event_redis_data:/data
+
+# ==========================================
+# SHARED VOLUMES
+# ==========================================
+volumes:
+  email_redis_data:
+  event_redis_data:
+  event_mongo_data:
+  event_uploads:
