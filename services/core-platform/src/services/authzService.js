@@ -75,6 +75,20 @@ function canSubmitHrApplication(identity) {
   return APPLICANT_ROLES.has(identity.role);
 }
 
+function canManagePrCommittee({ identity, membershipRole, committeeId = null }) {
+  if (isPrivilegedGlobalAccess(identity)) return true;
+
+  if (identity.role === 'publisher') {
+    if (identity.scopeType === 'global') return true;
+    if (identity.scopeType === 'committee') {
+      if (!committeeId) return true;
+      return identity.scopeId === committeeId;
+    }
+  }
+
+  return membershipRole === 'lead';
+}
+
 function canAcceptHrApplication({ identity, membershipRole, governanceMode }) {
   if (governanceMode === 'mode_a') {
     return canManageHrCommittee({ identity, membershipRole });
@@ -96,12 +110,53 @@ async function listManageableHrCommitteeIds(identity) {
   return committeesRepository.listCommitteeIdsForUserRole(identity.userRefId, 'lead');
 }
 
+async function listManageablePrCommitteeIds(identity) {
+  if (isPrivilegedGlobalAccess(identity)) return null;
+
+  if (identity.role === 'publisher') {
+    if (identity.scopeType === 'global') return null;
+    if (identity.scopeType === 'committee') return [identity.scopeId];
+  }
+
+  if (!identity?.userRefId) return [];
+
+  if (identity.scopeType === 'committee') {
+    const membershipRole = await getMembershipRoleForCommittee(identity, identity.scopeId);
+    const canManage = canManagePrCommittee({
+      identity,
+      membershipRole,
+      committeeId: identity.scopeId,
+    });
+    return canManage ? [identity.scopeId] : [];
+  }
+
+  return committeesRepository.listCommitteeIdsForUserRole(identity.userRefId, 'lead');
+}
+
+function canManageMediaCommittee({ identity, membershipRole, committeeId = null }) {
+  return canManagePrCommittee({ identity, membershipRole, committeeId });
+}
+
+function canPublishMediaAlbum({ identity, committeeId }) {
+  if (!['admin', 'publisher'].includes(identity.role)) return false;
+  if (identity.scopeType === 'global') return true;
+  if (identity.scopeType === 'committee') return identity.scopeId === committeeId;
+  return false;
+}
+
+async function listManageableMediaCommitteeIds(identity) {
+  return listManageablePrCommitteeIds(identity);
+}
+
 module.exports = {
   canAcceptHrApplication,
   canAssignTask,
   canManageHrCommittee,
+  canManageMediaCommittee,
+  canManagePrCommittee,
   canManageCommitteeContent,
   canManageMemberships,
+  canPublishMediaAlbum,
   canReadCommittee,
   canSubmitHrApplication,
   canUpdateTaskStatus,
@@ -109,4 +164,6 @@ module.exports = {
   isGlobalAccess,
   isPrivilegedGlobalAccess,
   listManageableHrCommitteeIds,
+  listManageableMediaCommitteeIds,
+  listManageablePrCommitteeIds,
 };

@@ -10,6 +10,10 @@ const hrCampaignController = require('../controllers/hrCampaignController');
 const hrApplicationController = require('../controllers/hrApplicationController');
 const hrOnboardingController = require('../controllers/hrOnboardingController');
 const hrReportsController = require('../controllers/hrReportsController');
+const prAnnouncementController = require('../controllers/prAnnouncementController');
+const prCampaignController = require('../controllers/prCampaignController');
+const mediaAlbumController = require('../controllers/mediaAlbumController');
+const mediaCoverageController = require('../controllers/mediaCoverageController');
 const routesController = require('../controllers/routesController');
 const { attachUserRef, requireCommitteeScope, verifyGatewaySignature } = require('../middlewares/gatewayAuth');
 
@@ -40,6 +44,20 @@ router.get('/hr/onboarding/:userId', hrOnboardingController.listOnboardingByUser
 router.patch('/hr/onboarding/:itemId', hrOnboardingController.updateOnboardingItem);
 router.get('/hr/reports/pipeline-summary', hrReportsController.getPipelineSummary);
 router.get('/hr/reports/pipeline-timeline', hrReportsController.getPipelineTimeline);
+router.post('/pr/announcements', prAnnouncementController.createAnnouncement);
+router.get('/pr/announcements', prAnnouncementController.listAnnouncements);
+router.patch('/pr/announcements/:announcementId', prAnnouncementController.updateAnnouncement);
+router.delete('/pr/announcements/:announcementId', prAnnouncementController.deleteAnnouncement);
+router.post('/pr/campaigns', prCampaignController.createCampaign);
+router.get('/pr/campaigns', prCampaignController.listCampaigns);
+router.post('/pr/campaigns/:campaignId/send', prCampaignController.sendCampaign);
+router.get('/pr/campaigns/:campaignId/delivery', prCampaignController.getCampaignDelivery);
+router.post('/media/albums', mediaAlbumController.createAlbum);
+router.get('/media/albums', mediaAlbumController.listAlbums);
+router.post('/media/albums/:albumId/assets', mediaAlbumController.addAlbumAsset);
+router.post('/media/albums/:albumId/publish', mediaAlbumController.publishAlbum);
+router.post('/media/coverage-requests', mediaCoverageController.createCoverageRequest);
+router.patch('/media/coverage-requests/:requestId/status', mediaCoverageController.updateCoverageStatus);
 router.get('/routes', routesController.getCoreRoutes);
 
 module.exports = router;

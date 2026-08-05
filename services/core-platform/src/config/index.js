@@ -42,6 +42,17 @@ function parseOptionalUrl(name) {
   return parsed.toString();
 }
 
+function parseOptionalUuid(name) {
+  const value = optionalEnv(name);
+  if (!value) return null;
+
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)) {
+    throw new Error(`${name} must be a valid UUID`);
+  }
+
+  return value.toLowerCase();
+}
+
 function parsePositiveInteger(name, defaultValue) {
   const value = optionalEnv(name);
   if (!value) return defaultValue;
@@ -85,6 +96,12 @@ const config = {
   },
   hr: {
     acceptGovernanceMode: parseEnum('HR_ACCEPT_GOVERNANCE_MODE', ['mode_a', 'mode_b'], 'mode_b'),
+  },
+  pr: {
+    campaignMaxRecipients: parsePositiveInteger('PR_CAMPAIGN_MAX_RECIPIENTS', 500),
+  },
+  media: {
+    defaultCommitteeId: parseOptionalUuid('MEDIA_COMMITTEE_ID'),
   },
 };
 

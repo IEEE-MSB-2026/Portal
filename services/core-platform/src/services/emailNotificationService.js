@@ -94,6 +94,19 @@ function buildOnboardingText({
   return lines.join('\n');
 }
 
+function buildPrCampaignText({
+  campaignTitle,
+  campaignBody,
+}) {
+  const lines = [
+    `Campaign: ${campaignTitle}`,
+    '',
+    campaignBody,
+  ];
+
+  return lines.join('\n');
+}
+
 function buildPayload({ recipientEmail, subject, text, eventType, idempotencyKey }) {
   return {
     schemaVersion: '1.0',
@@ -366,8 +379,110 @@ async function sendOnboardingChecklistNotification({
   return { ...result, recipientEmail: normalizedRecipient };
 }
 
+async function sendPrCampaignDispatchNotifications({
+  requestId,
+  route,
+  campaignId,
+  campaignTitle,
+  subject,
+  campaignBody,
+  recipientEmails,
+}) {
+  if (!isEnabled()) {
+    return {
+      ok: false,
+      reason: 'not_configured',
+      sentCount: 0,
+      failedCount: 0,
+      skippedCount: 0,
+      totalRecipients: 0,
+      results: [],
+    };
+  }
+
+  const recipients = [];
+  const seen = new Set();
+  let invalidRecipientCount = 0;
+  for (const candidate of recipientEmails || []) {
+    const normalized = normalizeEmail(candidate);
+    if (!normalized) {
+      invalidRecipientCount += 1;
+      continue;
+    }
+    if (seen.has(normalized)) continue;
+    seen.add(normalized);
+    recipients.push(normalized);
+  }
+
+  if (!recipients.length) {
+    logger.warn({
+      event: 'core.email_notification.skipped',
+      requestId,
+      route,
+      notificationType: 'pr_campaign',
+      reason: 'no_valid_recipients',
+    }, 'Skipping PR campaign dispatch because no valid recipients were resolved');
+
+    return {
+      ok: true,
+      reason: 'no_valid_recipients',
+      sentCount: 0,
+      failedCount: 0,
+      skippedCount: invalidRecipientCount,
+      totalRecipients: 0,
+      results: [],
+    };
+  }
+
+  if (invalidRecipientCount > 0) {
+    logger.warn({
+      event: 'core.email_notification.skipped',
+      requestId,
+      route,
+      notificationType: 'pr_campaign',
+      reason: 'invalid_recipient',
+      invalidRecipientCount,
+    }, 'Some PR campaign recipients were skipped because of invalid email addresses');
+  }
+
+  const results = await Promise.all(recipients.map(async (recipientEmail) => {
+    const payload = buildPayload({
+      recipientEmail,
+      subject,
+      text: buildPrCampaignText({
+        campaignTitle,
+        campaignBody,
+      }),
+      eventType: 'core.pr.campaign.dispatched',
+      idempotencyKey: `core-pr-campaign:${campaignId}:${recipientEmail}`,
+    });
+
+    const result = await postEmail(payload, {
+      requestId,
+      route,
+      notificationType: 'pr_campaign',
+      recipientEmail,
+    });
+
+    return { ...result, recipientEmail };
+  }));
+
+  const sentCount = results.filter((result) => result.ok).length;
+  const failedCount = results.length - sentCount;
+  return {
+    ok: failedCount === 0,
+    reason: failedCount ? 'partial_failure' : null,
+    sentCount,
+    failedCount,
+    skippedCount: invalidRecipientCount,
+    totalRecipients: results.length,
+    results,
+  };
+}
+
 module.exports = {
   isEnabled,
+  sendPrCampaignDispatchNotifications,
   sendOnboardingChecklistNotification,
   sendTaskAssignmentNotification,
   sendCommitteeAnnouncementNotifications,

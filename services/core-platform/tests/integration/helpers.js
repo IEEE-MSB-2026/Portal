@@ -58,6 +58,14 @@ async function bootstrapTestDatabase() {
 }
 
 async function resetDatabase() {
+  await query('DELETE FROM media_coverage_activity_log');
+  await query('DELETE FROM media_coverage_requests');
+  await query('DELETE FROM media_album_assets');
+  await query('DELETE FROM media_albums');
+  await query('DELETE FROM pr_campaign_dispatch_log');
+  await query('DELETE FROM pr_campaigns');
+  await query('DELETE FROM pr_announcement_activity_log');
+  await query('DELETE FROM pr_announcements');
   await query('DELETE FROM hr_onboarding_items');
   await query('DELETE FROM hr_application_stage_log');
   await query('DELETE FROM hr_applications');

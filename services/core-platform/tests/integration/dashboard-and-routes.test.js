@@ -21,6 +21,9 @@ function materializePath(path) {
     .replace(':taskId', IDS.tasks.aiMemberTodo)
     .replace(':campaignId', '78787878-7878-4787-8787-787878787878')
     .replace(':applicationId', '89898989-8989-4898-8898-898989898989')
+    .replace(':announcementId', '91919191-9191-4919-8191-919191919191')
+    .replace(':albumId', '92929292-9292-4929-8292-929292929292')
+    .replace(':requestId', '93939393-9393-4939-8393-939393939393')
     .replace(':itemId', '90909090-9090-4090-8090-909090909090')
     .replace(':userId', 'member-ai-1');
 }
