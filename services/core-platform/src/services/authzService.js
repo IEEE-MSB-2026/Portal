@@ -10,6 +10,8 @@ const APPLICANT_ROLES = new Set([
   'publisher',
   'event_organizer',
   'event_scanner',
+  'visitor',
+  'applicant',
 ]);
 
 function isPrivilegedGlobalAccess(identity) {

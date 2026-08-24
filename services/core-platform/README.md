@@ -28,7 +28,7 @@ npm run dev
 - `CORE_GATEWAY_SHARED_SECRET`
 
 ## Optional notification environment variables
-- `EMAIL_SERVICE_URL`: base URL for `email-service` (example: `http://localhost:5060`)
+- `EMAIL_SERVICE_URL`: base URL for `email-service` (example: `http://localhost:3060`)
 - `EMAIL_SERVICE_AUTH_TOKEN`: service token sent as `x-service-token`
 - `EMAIL_SERVICE_TIMEOUT_MS`: outbound timeout in milliseconds (default: `3000`)
 

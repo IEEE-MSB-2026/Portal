@@ -35,6 +35,9 @@ const coreRoutesCatalog = [
   { method: 'POST', path: '/core/media/albums/:albumId/publish', description: 'Publish media album' },
   { method: 'POST', path: '/core/media/coverage-requests', description: 'Create media coverage request' },
   { method: 'PATCH', path: '/core/media/coverage-requests/:requestId/status', description: 'Update media coverage request status' },
+  { method: 'GET', path: '/public/committees', description: 'List public committees' },
+  { method: 'GET', path: '/public/announcements', description: 'List public announcements' },
+  { method: 'GET', path: '/public/media/albums', description: 'List public published media albums' },
   { method: 'GET', path: '/core/routes', description: 'List core route contracts' },
 ];
 

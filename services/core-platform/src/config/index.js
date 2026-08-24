@@ -1,4 +1,6 @@
-require('dotenv').config();
+if (process.env.NODE_ENV !== 'test') {
+  require('dotenv').config();
+}
 const { URL } = require('node:url');
 
 function requireEnv(name) {

@@ -4,9 +4,14 @@ const { randomUUID } = require('crypto');
 function setupTestEnv() {
   process.env.NODE_ENV = 'test';
   process.env.CORE_USE_PGMEM = 'true';
-  process.env.PORT = process.env.PORT || '5070';
-  process.env.DATABASE_URL = process.env.DATABASE_URL || 'postgres://unused/unused';
-  process.env.CORE_GATEWAY_SHARED_SECRET = process.env.CORE_GATEWAY_SHARED_SECRET || 'test-shared-secret';
+  process.env.PORT = '5070';
+  process.env.DATABASE_URL = 'postgres://unused/unused';
+  process.env.CORE_GATEWAY_SHARED_SECRET = 'test-shared-secret';
+  delete process.env.IAM_SERVICE_URL;
+  delete process.env.IAM_SERVICE_AUTH_TOKEN;
+  delete process.env.EMAIL_SERVICE_URL;
+  delete process.env.EMAIL_SERVICE_AUTH_TOKEN;
+  delete process.env.MEDIA_COMMITTEE_ID;
 }
 
 setupTestEnv();

@@ -1,0 +1,10 @@
+{
+  "name": "ieee-portal-workspace",
+  "version": "1.0.0",
+  "private": true,
+  "description": "IEEE Menoufia Student Branch Portal Monorepo",
+  "scripts": {
+    "test": "npm --prefix services/gateway test && npm --prefix services/core-platform test && npm --prefix services/event-register test && npm --prefix services/email-service test && npm --prefix services/file-service test",
+    "live-flow": "node scripts/run_live_manual_flows.js"
+  }
+}

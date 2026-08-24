@@ -13,6 +13,8 @@ function createPool() {
 
   return new Pool({
     connectionString: config.databaseUrl,
+    connectionTimeoutMillis: 5000,
+    idleTimeoutMillis: 30000,
   });
 }
 

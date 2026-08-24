@@ -7,6 +7,7 @@ function mapAnnouncementColumns(prefix = 'a') {
     ${prefix}.committee_id,
     ${prefix}.title,
     ${prefix}.body,
+    ${prefix}.image_url,
     ${prefix}.visibility,
     ${prefix}.created_by_user_ref_id,
     ${prefix}.updated_by_user_ref_id,
@@ -54,6 +55,7 @@ async function createAnnouncement({
   committeeId,
   title,
   body,
+  imageUrl = null,
   visibility,
   actorUserRefId,
 }) {
@@ -65,13 +67,14 @@ async function createAnnouncement({
         committee_id,
         title,
         body,
+        image_url,
         visibility,
         created_by_user_ref_id,
         updated_by_user_ref_id
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $6)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $7)
     `,
-    [announcementId, committeeId, title, body, visibility, actorUserRefId]
+    [announcementId, committeeId, title, body, imageUrl || null, visibility, actorUserRefId]
   );
 
   return getAnnouncementById(announcementId, { includeDeleted: true });
@@ -81,6 +84,7 @@ async function updateAnnouncement({
   announcementId,
   title,
   body,
+  imageUrl = null,
   visibility,
   actorUserRefId,
 }) {
@@ -90,13 +94,14 @@ async function updateAnnouncement({
       SET
         title = $2,
         body = $3,
-        visibility = $4,
-        updated_by_user_ref_id = $5,
+        image_url = $4,
+        visibility = $5,
+        updated_by_user_ref_id = $6,
         updated_at = NOW()
       WHERE id = $1 AND deleted_at IS NULL
       RETURNING id
     `,
-    [announcementId, title, body, visibility, actorUserRefId]
+    [announcementId, title, body, imageUrl || null, visibility, actorUserRefId]
   );
 
   if (!result.rows[0]) return null;
@@ -124,7 +129,6 @@ async function softDeleteAnnouncement({ announcementId, actorUserRefId }) {
 
 async function listAnnouncements({
   committeeId = null,
-  committeeIds = null,
   visibility = null,
   includeDeleted = false,
   limit = 50,
@@ -132,18 +136,9 @@ async function listAnnouncements({
   const values = [limit];
   const where = [];
 
-  if (!includeDeleted) {
-    where.push('a.deleted_at IS NULL');
-  }
-
   if (committeeId) {
     values.push(committeeId);
     where.push(`a.committee_id = $${values.length}`);
-  } else if (Array.isArray(committeeIds)) {
-    if (!committeeIds.length) return [];
-    const placeholders = committeeIds.map((_, index) => `$${values.length + index + 1}`);
-    values.push(...committeeIds);
-    where.push(`a.committee_id IN (${placeholders.join(', ')})`);
   }
 
   if (visibility) {
@@ -151,8 +146,11 @@ async function listAnnouncements({
     where.push(`a.visibility = $${values.length}`);
   }
 
-  const whereClause = where.length ? `WHERE ${where.join(' AND ')}` : '';
+  if (!includeDeleted) {
+    where.push('a.deleted_at IS NULL');
+  }
 
+  const whereClause = where.length ? `WHERE ${where.join(' AND ')}` : '';
   const result = await query(
     `
       SELECT
@@ -172,7 +170,7 @@ async function listAnnouncements({
   return result.rows;
 }
 
-async function createActivity({ announcementId, action, actorUserRefId, metadata }) {
+async function createActivityLog({ announcementId, action, actorUserRefId, metadata = {} }) {
   await query(
     `
       INSERT INTO pr_announcement_activity_log (
@@ -182,14 +180,14 @@ async function createActivity({ announcementId, action, actorUserRefId, metadata
         actor_user_ref_id,
         metadata
       )
-      VALUES ($1, $2, $3, $4, $5::jsonb)
+      VALUES ($1, $2, $3, $4, $5)
     `,
     [randomUUID(), announcementId, action, actorUserRefId, JSON.stringify(metadata || {})]
   );
 }
 
 module.exports = {
-  createActivity,
+  createActivityLog,
   createAnnouncement,
   getAnnouncementById,
   listAnnouncements,

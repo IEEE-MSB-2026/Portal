@@ -1,9 +1,11 @@
 const express = require('express');
-
-const prAnnouncementController = require('../controllers/prAnnouncementController');
+const publicController = require('../controllers/publicController');
 
 const router = express.Router();
 
-router.get('/pr/announcements', prAnnouncementController.listPublicAnnouncements);
+router.get('/committees', publicController.listPublicCommittees);
+router.get('/pr/announcements', publicController.listPublicAnnouncements);
+router.get('/announcements', publicController.listPublicAnnouncements);
+router.get('/media/albums', publicController.listPublicAlbums);
 
 module.exports = router;

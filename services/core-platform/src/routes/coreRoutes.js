@@ -23,6 +23,7 @@ router.use(verifyGatewaySignature);
 router.use(attachUserRef);
 
 router.get('/me/dashboard', dashboardController.getMyDashboard);
+router.patch('/me/avatar', dashboardController.updateMyAvatar);
 router.get('/committees/:committeeId/workspace', requireCommitteeScope('committeeId'), workspaceController.getCommitteeWorkspace);
 router.post('/committees/:committeeId/tasks', requireCommitteeScope('committeeId'), taskController.createTask);
 router.get('/committees/:committeeId/resources', requireCommitteeScope('committeeId'), resourceController.listCommitteeResources);

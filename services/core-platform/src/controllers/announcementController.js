@@ -10,11 +10,12 @@ const emailNotificationService = require('../services/emailNotificationService')
 function parseAnnouncementInput(body) {
   const title = typeof body.title === 'string' ? body.title.trim() : '';
   const content = typeof body.body === 'string' ? body.body.trim() : '';
+  const imageUrl = typeof body.imageUrl === 'string' ? body.imageUrl.trim() : null;
 
   if (!title) throw new HttpError(400, 'title is required');
   if (!content) throw new HttpError(400, 'body is required');
 
-  return { title, body: content };
+  return { title, body: content, imageUrl: imageUrl || null };
 }
 
 async function listCommitteeAnnouncements(req, res, next) {
@@ -64,6 +65,7 @@ async function createCommitteeAnnouncement(req, res, next) {
       committeeId,
       title: payload.title,
       body: payload.body,
+      imageUrl: payload.imageUrl,
       createdByUserRefId: req.identity.userRefId,
     });
 
@@ -73,6 +75,7 @@ async function createCommitteeAnnouncement(req, res, next) {
       committeeId,
       announcementId: announcement.id,
       actorUserId: req.identity.externalUserId,
+      hasImage: Boolean(payload.imageUrl),
     });
 
     const memberships = await membershipsRepository.listMembershipsByCommittee(committeeId);
@@ -104,10 +107,11 @@ async function createCommitteeAnnouncement(req, res, next) {
     return res.status(201).json({
       announcement: {
         id: announcement.id,
-        committeeId: announcement.committee_id,
+        committeeId: announcement.committeeId || announcement.committee_id,
         title: announcement.title,
         body: announcement.body,
-        createdAt: announcement.created_at,
+        imageUrl: announcement.imageUrl || null,
+        createdAt: announcement.createdAt || announcement.created_at,
       },
     });
   } catch (error) {

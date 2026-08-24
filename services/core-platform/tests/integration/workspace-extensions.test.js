@@ -139,10 +139,13 @@ test('announcements: lead can create, member can list, cross-committee forbidden
       body: JSON.stringify({
         title: 'AI Hackathon Prep',
         body: 'Prepare demo topics before Friday.',
+        imageUrl: 'https://res.cloudinary.com/demo/image/upload/v1234/ieee_portal/announcements/hackathon.jpg',
       }),
     });
 
+    const createPayload = await createRes.json();
     assert.equal(createRes.status, 201);
+    assert.equal(createPayload.announcement.imageUrl, 'https://res.cloudinary.com/demo/image/upload/v1234/ieee_portal/announcements/hackathon.jpg');
 
     const listPath = `/core/committees/${IDS.committees.ai}/announcements`;
     const memberHeaders = signedHeaders({
@@ -159,6 +162,9 @@ test('announcements: lead can create, member can list, cross-committee forbidden
     const listPayload = await listRes.json();
     assert.equal(listRes.status, 200);
     assert.equal(listPayload.announcements.length >= 2, true);
+    const foundAnnouncement = listPayload.announcements.find((a) => a.title === 'AI Hackathon Prep');
+    assert.ok(foundAnnouncement);
+    assert.equal(foundAnnouncement.imageUrl, 'https://res.cloudinary.com/demo/image/upload/v1234/ieee_portal/announcements/hackathon.jpg');
 
     const crossPath = `/core/committees/${IDS.committees.web}/announcements`;
     const crossHeaders = signedHeaders({

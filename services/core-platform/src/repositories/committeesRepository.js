@@ -8,6 +8,14 @@ async function getCommitteeById(committeeId) {
   return result.rows[0] || null;
 }
 
+async function getCommitteeBySlug(slug) {
+  const result = await query(
+    'SELECT id, slug, name, is_active FROM committees WHERE slug = $1 LIMIT 1',
+    [slug]
+  );
+  return result.rows[0] || null;
+}
+
 async function listCommitteesForUser(userRefId) {
   const result = await query(
     `
@@ -61,10 +69,24 @@ async function listCommitteeIdsForUserRole(userRefId, roleInCommittee) {
   return result.rows.map((row) => row.committee_id);
 }
 
+async function listPublicCommittees() {
+  const result = await query(
+    'SELECT id, slug, name, is_active FROM committees WHERE is_active = TRUE ORDER BY name ASC'
+  );
+  return result.rows.map((row) => ({
+    id: row.id,
+    slug: row.slug,
+    name: row.name,
+    isActive: row.is_active,
+  }));
+}
+
 module.exports = {
   getCommitteeById,
+  getCommitteeBySlug,
   getMembershipRole,
   isMemberOfCommittee,
   listCommitteeIdsForUserRole,
   listCommitteesForUser,
+  listPublicCommittees,
 };

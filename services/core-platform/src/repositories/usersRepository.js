@@ -9,7 +9,7 @@ async function ensureUserRef({ externalUserId, email }) {
       VALUES ($1, $2, $3)
       ON CONFLICT (external_user_id)
       DO UPDATE SET email = EXCLUDED.email
-      RETURNING id, external_user_id, email
+      RETURNING id, external_user_id, email, avatar_url
     `,
     [id, externalUserId, email]
   );
@@ -18,12 +18,13 @@ async function ensureUserRef({ externalUserId, email }) {
     id: result.rows[0].id,
     externalUserId: result.rows[0].external_user_id,
     email: result.rows[0].email,
+    avatarUrl: result.rows[0].avatar_url || null,
   };
 }
 
 async function findByExternalUserId(externalUserId) {
   const result = await query(
-    'SELECT id, external_user_id, email FROM users_ref WHERE external_user_id = $1',
+    'SELECT id, external_user_id, email, avatar_url FROM users_ref WHERE external_user_id = $1',
     [externalUserId]
   );
 
@@ -32,10 +33,33 @@ async function findByExternalUserId(externalUserId) {
     id: result.rows[0].id,
     externalUserId: result.rows[0].external_user_id,
     email: result.rows[0].email,
+    avatarUrl: result.rows[0].avatar_url || null,
+  };
+}
+
+async function updateUserAvatar(userRefId, avatarUrl) {
+  const result = await query(
+    `
+      UPDATE users_ref
+      SET avatar_url = $2
+      WHERE id = $1
+      RETURNING id, external_user_id, email, avatar_url
+    `,
+    [userRefId, avatarUrl]
+  );
+
+  if (!result.rows[0]) return null;
+  return {
+    id: result.rows[0].id,
+    externalUserId: result.rows[0].external_user_id,
+    email: result.rows[0].email,
+    avatarUrl: result.rows[0].avatar_url || null,
   };
 }
 
 module.exports = {
   ensureUserRef,
   findByExternalUserId,
+  updateUserAvatar,
 };
+

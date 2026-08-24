@@ -1,5 +1,5 @@
 const { randomUUID } = require('crypto');
-const { query } = require('../db/pool');
+const { query, getPool } = require('../db/pool');
 
 function mapAlbumColumns(prefix = 'a') {
   return `
@@ -7,6 +7,7 @@ function mapAlbumColumns(prefix = 'a') {
     ${prefix}.committee_id,
     ${prefix}.title,
     ${prefix}.description,
+    ${prefix}.cover_image_url,
     ${prefix}.status,
     ${prefix}.published_at,
     ${prefix}.created_by_user_ref_id,
@@ -25,6 +26,38 @@ function mapAlbumSelect(prefix = 'a') {
   `;
 }
 
+async function countAlbumAssets(albumId) {
+  const result = await query(
+    'SELECT COUNT(*)::int AS count FROM media_album_assets WHERE album_id = $1',
+    [albumId]
+  );
+  return result.rows[0]?.count || 0;
+}
+
+async function listAlbumAssets(albumId, { limit = 200 } = {}) {
+  const result = await query(
+    `
+      SELECT
+        a.id,
+        a.album_id,
+        a.asset_url,
+        a.asset_type,
+        a.caption,
+        a.created_by_user_ref_id,
+        creator.external_user_id AS created_by_external_user_id,
+        a.created_at
+      FROM media_album_assets a
+      JOIN users_ref creator ON creator.id = a.created_by_user_ref_id
+      WHERE a.album_id = $1
+      ORDER BY a.created_at ASC, a.id ASC
+      LIMIT $2
+    `,
+    [albumId, limit]
+  );
+
+  return result.rows;
+}
+
 async function getAlbumById(albumId) {
   const result = await query(
     `
@@ -39,26 +72,80 @@ async function getAlbumById(albumId) {
     `,
     [albumId]
   );
-  return result.rows[0] || null;
+  const album = result.rows[0];
+  if (!album) return null;
+
+  const assets = await listAlbumAssets(albumId);
+  album.assets = assets;
+  album.assets_count = assets.length;
+  if (!album.cover_image_url && assets.length > 0) {
+    album.cover_image_url = assets[0].asset_url;
+  }
+
+  return album;
 }
 
-async function createAlbum({ committeeId, title, description, actorUserRefId }) {
+async function createAlbum({ committeeId, title, description, coverImageUrl = null, assets = [], actorUserRefId }) {
   const albumId = randomUUID();
-  await query(
-    `
-      INSERT INTO media_albums (
-        id,
-        committee_id,
-        title,
-        description,
-        status,
-        created_by_user_ref_id,
-        updated_by_user_ref_id
-      )
-      VALUES ($1, $2, $3, $4, 'draft', $5, $5)
-    `,
-    [albumId, committeeId, title, description || null, actorUserRefId]
-  );
+  const pool = getPool();
+  const client = await pool.connect();
+
+  try {
+    await client.query('BEGIN');
+
+    const firstAssetUrl = Array.isArray(assets) && assets.length > 0 ? assets[0].assetUrl : null;
+    const finalCoverImageUrl = coverImageUrl || firstAssetUrl || null;
+
+    await client.query(
+      `
+        INSERT INTO media_albums (
+          id,
+          committee_id,
+          title,
+          description,
+          cover_image_url,
+          status,
+          created_by_user_ref_id,
+          updated_by_user_ref_id
+        )
+        VALUES ($1, $2, $3, $4, $5, 'draft', $6, $6)
+      `,
+      [albumId, committeeId, title, description || null, finalCoverImageUrl, actorUserRefId]
+    );
+
+    if (Array.isArray(assets) && assets.length > 0) {
+      for (const asset of assets) {
+        await client.query(
+          `
+            INSERT INTO media_album_assets (
+              id,
+              album_id,
+              asset_url,
+              asset_type,
+              caption,
+              created_by_user_ref_id
+            )
+            VALUES ($1, $2, $3, $4, $5, $6)
+          `,
+          [
+            randomUUID(),
+            albumId,
+            asset.assetUrl,
+            asset.assetType || 'image',
+            asset.caption || null,
+            actorUserRefId,
+          ]
+        );
+      }
+    }
+
+    await client.query('COMMIT');
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
 
   return getAlbumById(albumId);
 }
@@ -93,7 +180,47 @@ async function listAlbums({ committeeId = null, committeeIds = null, limit = 50 
     values
   );
 
-  return result.rows;
+  const albums = result.rows;
+  if (!albums.length) return [];
+
+  const albumIds = albums.map((a) => a.id);
+  const assetsRes = await query(
+    `
+      SELECT
+        a.id,
+        a.album_id,
+        a.asset_url,
+        a.asset_type,
+        a.caption,
+        a.created_by_user_ref_id,
+        creator.external_user_id AS created_by_external_user_id,
+        a.created_at
+      FROM media_album_assets a
+      JOIN users_ref creator ON creator.id = a.created_by_user_ref_id
+      WHERE a.album_id = ANY($1)
+      ORDER BY a.created_at ASC, a.id ASC
+    `,
+    [albumIds]
+  );
+
+  const assetsByAlbum = new Map();
+  for (const asset of assetsRes.rows) {
+    if (!assetsByAlbum.has(asset.album_id)) {
+      assetsByAlbum.set(asset.album_id, []);
+    }
+    assetsByAlbum.get(asset.album_id).push(asset);
+  }
+
+  for (const album of albums) {
+    const assets = assetsByAlbum.get(album.id) || [];
+    album.assets = assets;
+    album.assets_count = assets.length;
+    if (!album.cover_image_url && assets.length > 0) {
+      album.cover_image_url = assets[0].asset_url;
+    }
+  }
+
+  return albums;
 }
 
 async function addAlbumAsset({ albumId, assetUrl, assetType, caption, actorUserRefId }) {
@@ -120,31 +247,17 @@ async function addAlbumAsset({ albumId, assetUrl, assetType, caption, actorUserR
     [randomUUID(), albumId, assetUrl, assetType, caption || null, actorUserRefId]
   );
 
-  return result.rows[0];
-}
-
-async function listAlbumAssets(albumId, { limit = 200 } = {}) {
-  const result = await query(
+  // Update cover image URL on album if not already set
+  await query(
     `
-      SELECT
-        a.id,
-        a.album_id,
-        a.asset_url,
-        a.asset_type,
-        a.caption,
-        a.created_by_user_ref_id,
-        creator.external_user_id AS created_by_external_user_id,
-        a.created_at
-      FROM media_album_assets a
-      JOIN users_ref creator ON creator.id = a.created_by_user_ref_id
-      WHERE a.album_id = $1
-      ORDER BY a.created_at ASC, a.id ASC
-      LIMIT $2
+      UPDATE media_albums
+      SET cover_image_url = COALESCE(cover_image_url, $2)
+      WHERE id = $1
     `,
-    [albumId, limit]
+    [albumId, assetUrl]
   );
 
-  return result.rows;
+  return result.rows[0];
 }
 
 async function publishAlbum({ albumId, actorUserRefId }) {
@@ -168,6 +281,7 @@ async function publishAlbum({ albumId, actorUserRefId }) {
 
 module.exports = {
   addAlbumAsset,
+  countAlbumAssets,
   createAlbum,
   getAlbumById,
   listAlbumAssets,

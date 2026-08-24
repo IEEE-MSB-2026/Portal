@@ -6,24 +6,6 @@ const authzService = require('../services/authzService');
 const committeesRepository = require('../repositories/committeesRepository');
 const mediaAlbumsRepository = require('../repositories/mediaAlbumsRepository');
 
-function toAlbumResponse(row) {
-  return {
-    id: row.id,
-    committeeId: row.committee_id,
-    committeeName: row.committee_name,
-    title: row.title,
-    description: row.description,
-    status: row.status,
-    publishedAt: row.published_at,
-    createdByUserRefId: row.created_by_user_ref_id,
-    createdByUserId: row.created_by_external_user_id,
-    updatedByUserRefId: row.updated_by_user_ref_id,
-    updatedByUserId: row.updated_by_external_user_id,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
-  };
-}
-
 function toAssetResponse(row) {
   return {
     id: row.id,
@@ -37,10 +19,32 @@ function toAssetResponse(row) {
   };
 }
 
+function toAlbumResponse(row) {
+  return {
+    id: row.id,
+    committeeId: row.committee_id,
+    committeeName: row.committee_name,
+    title: row.title,
+    description: row.description,
+    coverImageUrl: row.cover_image_url || (Array.isArray(row.assets) && row.assets.length > 0 ? row.assets[0].asset_url : null),
+    status: row.status,
+    publishedAt: row.published_at,
+    assetsCount: typeof row.assets_count === 'number' ? row.assets_count : (Array.isArray(row.assets) ? row.assets.length : 0),
+    assets: Array.isArray(row.assets) ? row.assets.map(toAssetResponse) : [],
+    createdByUserRefId: row.created_by_user_ref_id,
+    createdByUserId: row.created_by_external_user_id,
+    updatedByUserRefId: row.updated_by_user_ref_id,
+    updatedByUserId: row.updated_by_external_user_id,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
 function parseCreateInput(body) {
   const committeeId = typeof body?.committeeId === 'string' ? body.committeeId.trim() : '';
   const title = typeof body?.title === 'string' ? body.title.trim() : '';
   const description = typeof body?.description === 'string' ? body.description.trim() : '';
+  const coverImageUrl = typeof body?.coverImageUrl === 'string' ? body.coverImageUrl.trim() : null;
 
   if (!isUuid(committeeId)) {
     throw new HttpError(400, 'committeeId is required and must be a valid UUID');
@@ -49,10 +53,25 @@ function parseCreateInput(body) {
     throw new HttpError(400, 'title is required');
   }
 
+  let assets = [];
+  if (Array.isArray(body?.assets)) {
+    assets = body.assets.map((item, idx) => {
+      const assetUrl = typeof item?.assetUrl === 'string' ? item.assetUrl.trim() : '';
+      const assetType = typeof item?.assetType === 'string' ? item.assetType.trim() : 'image';
+      const caption = typeof item?.caption === 'string' ? item.caption.trim() : null;
+      if (!assetUrl) {
+        throw new HttpError(400, `assets[${idx}].assetUrl is required`);
+      }
+      return { assetUrl, assetType, caption };
+    });
+  }
+
   return {
     committeeId,
     title,
     description: description || null,
+    coverImageUrl: coverImageUrl || null,
+    assets,
   };
 }
 
@@ -101,6 +120,8 @@ async function createAlbum(req, res, next) {
       committeeId: payload.committeeId,
       title: payload.title,
       description: payload.description,
+      coverImageUrl: payload.coverImageUrl,
+      assets: payload.assets,
       actorUserRefId: req.identity.userRefId,
     });
 
@@ -110,6 +131,7 @@ async function createAlbum(req, res, next) {
       albumId: album.id,
       committeeId: album.committee_id,
       actorUserId: req.identity.externalUserId,
+      assetsCount: album.assets?.length || 0,
     });
 
     return res.status(201).json({
@@ -215,6 +237,11 @@ async function publishAlbum(req, res, next) {
       throw new HttpError(403, 'Forbidden');
     }
 
+    const assetCount = await mediaAlbumsRepository.countAlbumAssets(albumId);
+    if (assetCount === 0) {
+      throw new HttpError(400, 'Cannot publish an album without at least one media asset/image');
+    }
+
     if (album.status === 'published') {
       return res.status(200).json({
         album: toAlbumResponse(album),
@@ -242,9 +269,26 @@ async function publishAlbum(req, res, next) {
   }
 }
 
+async function listPublicAlbums(req, res, next) {
+  try {
+    const limit = parseLimit(req.query?.limit, 50, 100);
+    const albums = await mediaAlbumsRepository.listAlbums({
+      limit,
+    });
+
+    const publishedOnly = albums.filter((album) => album.status === 'published');
+    return res.status(200).json({
+      albums: publishedOnly.map((album) => toAlbumResponse(album)),
+    });
+  } catch (error) {
+    return next(error);
+  }
+}
+
 module.exports = {
   addAlbumAsset,
   createAlbum,
   listAlbums,
+  listPublicAlbums,
   publishAlbum,
 };

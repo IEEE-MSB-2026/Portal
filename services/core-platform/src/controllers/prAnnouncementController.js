@@ -15,6 +15,7 @@ function toAnnouncementResponse(row) {
     committeeName: row.committee_name,
     title: row.title,
     body: row.body,
+    imageUrl: row.image_url || null,
     visibility: row.visibility,
     createdByUserRefId: row.created_by_user_ref_id,
     createdByUserId: row.created_by_external_user_id,
@@ -49,6 +50,7 @@ function parseCreateInput(body) {
   const committeeId = typeof body?.committeeId === 'string' ? body.committeeId.trim() : '';
   const title = typeof body?.title === 'string' ? body.title.trim() : '';
   const announcementBody = typeof body?.body === 'string' ? body.body.trim() : '';
+  const imageUrl = typeof body?.imageUrl === 'string' ? body.imageUrl.trim() : null;
   const visibility = parseVisibility(body?.visibility, 'internal');
 
   if (!isUuid(committeeId)) {
@@ -61,12 +63,13 @@ function parseCreateInput(body) {
     throw new HttpError(400, 'body is required');
   }
 
-  return { committeeId, title, body: announcementBody, visibility };
+  return { committeeId, title, body: announcementBody, imageUrl: imageUrl || null, visibility };
 }
 
 function parseUpdateInput(body) {
   const title = typeof body?.title === 'string' ? body.title.trim() : null;
   const announcementBody = typeof body?.body === 'string' ? body.body.trim() : null;
+  const imageUrl = typeof body?.imageUrl === 'string' ? body.imageUrl.trim() : (body?.imageUrl === null ? null : undefined);
   const visibility = parseVisibility(body?.visibility, null);
 
   if (title !== null && !title) {
@@ -75,8 +78,8 @@ function parseUpdateInput(body) {
   if (announcementBody !== null && !announcementBody) {
     throw new HttpError(400, 'body must not be empty');
   }
-  if (title === null && announcementBody === null && visibility === null) {
-    throw new HttpError(400, 'At least one of title, body, visibility is required');
+  if (title === null && announcementBody === null && visibility === null && imageUrl === undefined) {
+    throw new HttpError(400, 'At least one of title, body, imageUrl, visibility is required');
   }
 
   return {
@@ -84,6 +87,8 @@ function parseUpdateInput(body) {
     title,
     hasBody: announcementBody !== null,
     body: announcementBody,
+    hasImageUrl: imageUrl !== undefined,
+    imageUrl: imageUrl || null,
     hasVisibility: visibility !== null,
     visibility,
   };
@@ -115,11 +120,12 @@ async function createAnnouncement(req, res, next) {
       committeeId: payload.committeeId,
       title: payload.title,
       body: payload.body,
+      imageUrl: payload.imageUrl,
       visibility: payload.visibility,
       actorUserRefId: req.identity.userRefId,
     });
 
-    await prAnnouncementsRepository.createActivity({
+    await prAnnouncementsRepository.createActivityLog({
       announcementId: announcement.id,
       action: 'created',
       actorUserRefId: req.identity.userRefId,
@@ -136,6 +142,7 @@ async function createAnnouncement(req, res, next) {
       committeeId: announcement.committee_id,
       actorUserId: req.identity.externalUserId,
       visibility: announcement.visibility,
+      hasImage: Boolean(payload.imageUrl),
     });
 
     return res.status(201).json({
@@ -204,6 +211,7 @@ async function updateAnnouncement(req, res, next) {
       announcementId,
       title: payload.hasTitle ? payload.title : existing.title,
       body: payload.hasBody ? payload.body : existing.body,
+      imageUrl: payload.hasImageUrl ? payload.imageUrl : existing.image_url,
       visibility: payload.hasVisibility ? payload.visibility : existing.visibility,
       actorUserRefId: req.identity.userRefId,
     });
@@ -212,7 +220,7 @@ async function updateAnnouncement(req, res, next) {
       throw new HttpError(404, 'Announcement not found');
     }
 
-    await prAnnouncementsRepository.createActivity({
+    await prAnnouncementsRepository.createActivityLog({
       announcementId: updated.id,
       action: 'updated',
       actorUserRefId: req.identity.userRefId,
@@ -257,43 +265,64 @@ async function deleteAnnouncement(req, res, next) {
     const existing = await prAnnouncementsRepository.getAnnouncementById(announcementId, {
       includeDeleted: true,
     });
-    if (!existing) {
+    if (!existing || existing.deleted_at) {
       throw new HttpError(404, 'Announcement not found');
     }
 
     await ensureManageAccess(req.identity, existing.committee_id);
-
-    if (existing.deleted_at) {
-      return res.status(200).json({
-        announcement: toAnnouncementResponse(existing),
-      });
-    }
 
     const deleted = await prAnnouncementsRepository.softDeleteAnnouncement({
       announcementId,
       actorUserRefId: req.identity.userRefId,
     });
 
-    await prAnnouncementsRepository.createActivity({
-      announcementId,
+    if (!deleted) {
+      throw new HttpError(404, 'Announcement not found');
+    }
+
+    await prAnnouncementsRepository.createActivityLog({
+      announcementId: deleted.id,
       action: 'deleted',
       actorUserRefId: req.identity.userRefId,
       metadata: {
-        title: existing.title,
-        visibility: existing.visibility,
+        deletedAt: deleted.deleted_at,
       },
     });
 
     logger.info({
       event: 'pr.announcement.deleted',
       requestId: req.requestId,
-      announcementId,
-      committeeId: existing.committee_id,
+      announcementId: deleted.id,
+      committeeId: deleted.committee_id,
       actorUserId: req.identity.externalUserId,
     });
 
     return res.status(200).json({
-      announcement: toAnnouncementResponse(deleted || existing),
+      announcement: toAnnouncementResponse(deleted),
+    });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+async function getAnnouncement(req, res, next) {
+  try {
+    const announcementId = req.params.announcementId;
+    if (!isUuid(announcementId)) {
+      throw new HttpError(400, 'Invalid announcementId format');
+    }
+
+    const announcement = await prAnnouncementsRepository.getAnnouncementById(announcementId, {
+      includeDeleted: false,
+    });
+    if (!announcement) {
+      throw new HttpError(404, 'Announcement not found');
+    }
+
+    await ensureManageAccess(req.identity, announcement.committee_id);
+
+    return res.status(200).json({
+      announcement: toAnnouncementResponse(announcement),
     });
   } catch (error) {
     return next(error);
@@ -302,31 +331,15 @@ async function deleteAnnouncement(req, res, next) {
 
 async function listPublicAnnouncements(req, res, next) {
   try {
-    const committeeId = typeof req.query?.committeeId === 'string' ? req.query.committeeId.trim() : '';
     const limit = parseLimit(req.query?.limit, 50, 100);
-
-    if (committeeId && !isUuid(committeeId)) {
-      throw new HttpError(400, 'Invalid committeeId format');
-    }
-
     const announcements = await prAnnouncementsRepository.listAnnouncements({
-      committeeId: committeeId || null,
-      committeeIds: null,
       visibility: 'public',
       includeDeleted: false,
       limit,
     });
 
     return res.status(200).json({
-      announcements: announcements.map((row) => ({
-        id: row.id,
-        committeeId: row.committee_id,
-        committeeName: row.committee_name,
-        title: row.title,
-        body: row.body,
-        visibility: row.visibility,
-        createdAt: row.created_at,
-      })),
+      announcements: announcements.map((row) => toAnnouncementResponse(row)),
     });
   } catch (error) {
     return next(error);
@@ -336,6 +349,7 @@ async function listPublicAnnouncements(req, res, next) {
 module.exports = {
   createAnnouncement,
   deleteAnnouncement,
+  getAnnouncement,
   listAnnouncements,
   listPublicAnnouncements,
   updateAnnouncement,

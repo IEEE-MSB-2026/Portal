@@ -118,7 +118,16 @@ function buildCoverageTaskDescription(coverageRequest) {
 async function createCoverageRequest(req, res, next) {
   try {
     const payload = parseCreateInput(req.body || {});
-    const mediaCommitteeId = payload.mediaCommitteeId || config.media.defaultCommitteeId;
+    let mediaCommitteeId = payload.mediaCommitteeId || config.media.defaultCommitteeId;
+
+    if (!mediaCommitteeId) {
+      // Dynamic fallback: resolve media committee from database by standard slug 'media'
+      const dbMediaCommittee = await committeesRepository.getCommitteeBySlug('media');
+      if (dbMediaCommittee) {
+        mediaCommitteeId = dbMediaCommittee.id;
+      }
+    }
+
     if (!mediaCommitteeId) {
       throw new HttpError(503, 'Media committee is not configured');
     }

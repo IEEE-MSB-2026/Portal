@@ -147,6 +147,23 @@ test('media albums: lead can create/add assets but cannot publish without publis
         assert.equal(createdAlbum.response.status, 201);
         const albumId = createdAlbum.payload.album.id;
 
+        const publishEmptyPath = `/core/media/albums/${albumId}/publish`;
+        const publisherEmptyPublishHeaders = signedCoreHeaders({
+          method: 'POST',
+          path: publishEmptyPath,
+          actor: ACTORS.publisherGlobal,
+        });
+
+        // 1. Publishing an empty album with 0 assets must fail with 400
+        const emptyPublish = await requestJson(server, {
+          method: 'POST',
+          path: publishEmptyPath,
+          headers: publisherEmptyPublishHeaders,
+        });
+        assert.equal(emptyPublish.response.status, 400);
+        assert.ok(emptyPublish.payload.error.includes('at least one media asset'));
+
+        // 2. Add an asset to the album
         const addAssetPath = `/core/media/albums/${albumId}/assets`;
         const addAssetHeaders = signedCoreHeaders({
           method: 'POST',
@@ -190,6 +207,41 @@ test('media albums: lead can create/add assets but cannot publish without publis
         });
         assert.equal(published.response.status, 200);
         assert.equal(published.payload.album.status, 'published');
+        assert.equal(published.payload.album.coverImageUrl, 'https://cdn.example.com/media/asset-1.jpg');
+        assert.equal(published.payload.album.assetsCount, 1);
+        assert.equal(published.payload.album.assets.length, 1);
+
+        // 3. Test creating an album with initial assets in one atomic call
+        const createdWithAssets = await requestJson(server, {
+          method: 'POST',
+          path: createAlbumPath,
+          headers: createHeaders,
+          body: {
+            committeeId: IDS.committees.hr,
+            title: 'Hackathon 2026 Live Highlights',
+            coverImageUrl: 'https://cdn.example.com/media/custom-cover.jpg',
+            assets: [
+              { assetUrl: 'https://cdn.example.com/media/shot-1.jpg', assetType: 'image', caption: 'Teams coding' },
+              { assetUrl: 'https://cdn.example.com/media/shot-2.jpg', assetType: 'image', caption: 'Final awards' },
+            ],
+          },
+        });
+        assert.equal(createdWithAssets.response.status, 201);
+        assert.equal(createdWithAssets.payload.album.coverImageUrl, 'https://cdn.example.com/media/custom-cover.jpg');
+        assert.equal(createdWithAssets.payload.album.assetsCount, 2);
+        assert.equal(createdWithAssets.payload.album.assets.length, 2);
+
+        // 4. Test public listing returns embedded assets
+        const publicList = await requestJson(server, {
+          method: 'GET',
+          path: '/public/media/albums',
+        });
+        assert.equal(publicList.response.status, 200);
+        const publishedAlbum = publicList.payload.albums.find((a) => a.id === albumId);
+        assert.ok(publishedAlbum);
+        assert.equal(publishedAlbum.coverImageUrl, 'https://cdn.example.com/media/asset-1.jpg');
+        assert.equal(publishedAlbum.assetsCount, 1);
+        assert.equal(publishedAlbum.assets[0].assetUrl, 'https://cdn.example.com/media/asset-1.jpg');
       } finally {
         await new Promise((resolve) => server.close(resolve));
       }

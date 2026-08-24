@@ -24,6 +24,8 @@ const ALLOWED_ROLES = new Set([
   'publisher',
   'event_organizer',
   'event_scanner',
+  'visitor',
+  'applicant',
 ]);
 const ALLOWED_SCOPE_TYPES = new Set(['global', 'committee']);
 

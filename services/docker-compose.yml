@@ -30,12 +30,12 @@ services:
       RUN_API: "true"
       RUN_CONSUMER: "false"
     ports:
-      - "${EMAIL_SERVICE_PORT:-5060}:5060"
+      - "${EMAIL_SERVICE_PORT:-3060}:3060"
     depends_on:
       email-redis:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:5060/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3060/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
       interval: 15s
       timeout: 5s
       retries: 5
@@ -59,6 +59,86 @@ services:
         condition: service_healthy
 
   # ==========================================
+  # CORE PLATFORM SERVICE
+  # ==========================================
+  core-postgres:
+    image: postgres:15-alpine
+    container_name: core-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ieee_core
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgrespassword
+    ports:
+      - "5432:5432"
+    volumes:
+      - core_pg_data:/var/lib/postgresql/data
+
+  core-platform:
+    build: ./core-platform
+    container_name: core-platform-app
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      DATABASE_URL: postgres://postgres:postgrespassword@core-postgres:5432/ieee_core
+      GATEWAY_SHARED_SECRET: ${GATEWAY_SHARED_SECRET:-dev-gateway-secret-change-in-prod}
+      EMAIL_SERVICE_URL: http://email-api:3060
+      EMAIL_SERVICE_AUTH_TOKEN: ${EMAIL_SERVICE_AUTH_TOKEN:-2nUcG0xRi652tH8Y1RW/lsA2+BOvli2RvbNSfeMwl1Q=}
+    depends_on:
+      - core-postgres
+
+  # ==========================================
+  # GATEWAY / IAM SERVICE
+  # ==========================================
+  gateway:
+    build: ./gateway
+    container_name: gateway
+    restart: unless-stopped
+    ports:
+      - "4000:4000"
+    environment:
+      PORT: 4000
+      JWT_SECRET: jwt-secret-key-production-2026
+      GATEWAY_SHARED_SECRET: ${GATEWAY_SHARED_SECRET:-dev-gateway-secret-change-in-prod}
+      AUTH_CLAIMS_HMAC_SECRET: integration-claims-secret
+      CORE_PLATFORM_URL: http://core-platform:3000
+      EVENT_REGISTER_URL: http://event-app:5050
+      EMAIL_SERVICE_URL: http://email-api:3060
+      FILE_SERVICE_URL: http://file-service:5080
+    depends_on:
+      - core-platform
+      - event-app
+      - email-api
+      - file-service
+
+  # ==========================================
+  # CLOUDINARY FILE SERVICE
+  # ==========================================
+  file-service:
+    build: ./file-service
+    container_name: portal-file-service
+    restart: unless-stopped
+    ports:
+      - "5080:5080"
+    environment:
+      PORT: 5080
+      NODE_ENV: production
+      GATEWAY_SHARED_SECRET: ${GATEWAY_SHARED_SECRET:-dev-gateway-secret-change-in-prod}
+      CLOUDINARY_CLOUD_NAME: ${CLOUDINARY_CLOUD_NAME:-}
+      CLOUDINARY_API_KEY: ${CLOUDINARY_API_KEY:-}
+      CLOUDINARY_API_SECRET: ${CLOUDINARY_API_SECRET:-}
+      CLOUDINARY_ROOT_FOLDER: ieee_portal
+      MAX_IMAGE_SIZE_MB: 5
+      MAX_DOC_SIZE_MB: 15
+      MAX_VIDEO_SIZE_MB: 25
+      ENABLE_LOCAL_FALLBACK: "true"
+    volumes:
+      - file_uploads:/tmp/ieee_uploads
+
+  # ==========================================
   # EVENT REGISTER SERVICE
   # ==========================================
   event-app:
@@ -68,7 +148,7 @@ services:
       - ./event-register/.env
     restart: unless-stopped
     ports:
-      - "5050:5050" # Changed from expose to ports since Nginx is removed
+      - "5050:5050"
     environment:
       NODE_ENV: production
       PORT: 5050
@@ -76,7 +156,7 @@ services:
       REDIS_PASSWORD: ${REDIS_PASSWORD:-change-me-strong-password}
       REDIS_URL: redis://:${REDIS_PASSWORD:-change-me-strong-password}@event-redis:6379
       REDIS_STREAM_EMAIL: internal
-      EMAIL_SERVICE_URL: ${EMAIL_SERVICE_URL:-http://email-api:5060} # Pointed directly to email-api container
+      EMAIL_SERVICE_URL: ${EMAIL_SERVICE_URL:-http://email-api:3060}
       EMAIL_SERVICE_AUTH_TOKEN: ${EMAIL_SERVICE_AUTH_TOKEN:-2nUcG0xRi652tH8Y1RW/lsA2+BOvli2RvbNSfeMwl1Q=}
     depends_on:
       - event-mongo
@@ -99,17 +179,10 @@ services:
     restart: unless-stopped
     ports:
       - "6379:6379"
-    environment:
-      - REDIS_PASSWORD=${REDIS_PASSWORD:-change-me-strong-password}
-    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD:-change-me-strong-password}"]
-    volumes:
-      - event_redis_data:/data
 
-# ==========================================
-# SHARED VOLUMES
-# ==========================================
 volumes:
   email_redis_data:
-  event_redis_data:
   event_mongo_data:
   event_uploads:
+  file_uploads:
+  core_pg_data:
