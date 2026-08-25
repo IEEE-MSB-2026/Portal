@@ -1,5 +1,4 @@
 const cloudinary = require('cloudinary').v2;
-const fs = require('fs');
 const path = require('path');
 const { randomUUID } = require('crypto');
 const config = require('../config');
@@ -14,20 +13,9 @@ if (config.cloudinary.isConfigured) {
   });
 }
 
-// Ensure local upload directory exists for mock/fallback mode
-if (config.creditSaving.enableLocalFallback) {
-  try {
-    if (!fs.existsSync(config.creditSaving.localUploadDir)) {
-      fs.mkdirSync(config.creditSaving.localUploadDir, { recursive: true });
-    }
-  } catch (err) {
-    // ignore
-  }
-}
-
 /**
  * Generate Direct Upload Presigned Signature for Client Uploads
- * Injects mandatory credit-saving transformations (f_auto,q_auto,dimensions)
+ * Injects mandatory credit-saving transformations (f_auto,q_auto,c_limit,w_1920,h_1080)
  */
 function createUploadSignature({
   folder = 'general',
@@ -70,7 +58,7 @@ function createUploadSignature({
   if (config.cloudinary.isConfigured) {
     signature = cloudinary.utils.api_sign_request(paramsToSign, config.cloudinary.apiSecret);
   } else {
-    // Mock signature for local/test mode
+    // Signature simulation for test environments
     signature = `mock_signature_${timestamp}_${randomUUID().slice(0, 8)}`;
   }
 
@@ -79,7 +67,7 @@ function createUploadSignature({
   const uploadUrl = `https://api.cloudinary.com/v1_1/${cloudName}/${resourceType}/upload`;
 
   return {
-    uploadMode: config.cloudinary.isConfigured ? 'cloudinary' : 'local_mock',
+    uploadMode: config.cloudinary.isConfigured ? 'cloudinary' : 'test_mock',
     uploadUrl,
     signature,
     timestamp,
@@ -134,7 +122,6 @@ async function uploadBuffer({
         (error, result) => {
           if (error) return reject(error);
 
-          // Get optimized secure URL
           let optimizedUrl = result.secure_url;
           if (result.eager && result.eager.length > 0 && result.eager[0].secure_url) {
             optimizedUrl = result.eager[0].secure_url;
@@ -159,16 +146,13 @@ async function uploadBuffer({
     });
   }
 
-  // 2. Local fallback storage
+  // 2. Fallback response for testing environment when credentials are omitted
   const fileId = `${Date.now()}-${randomUUID().slice(0, 8)}-${path.basename(filename).replace(/[^a-zA-Z0-9._-]/g, '_')}`;
-  const localFilePath = path.join(config.creditSaving.localUploadDir, fileId);
-  await fs.promises.writeFile(localFilePath, buffer);
-
   return {
-    provider: 'local_mock',
+    provider: 'cloudinary_mock',
     publicId: `${targetFolder}/${fileId}`,
-    secureUrl: `http://localhost:${config.port}/local-uploads/${fileId}`,
-    rawUrl: `http://localhost:${config.port}/local-uploads/${fileId}`,
+    secureUrl: `https://res.cloudinary.com/demo/image/upload/${eager ? eager + '/' : ''}${targetFolder}/${fileId}`,
+    rawUrl: `https://res.cloudinary.com/demo/image/upload/${targetFolder}/${fileId}`,
     format: path.extname(filename).replace('.', '') || 'bin',
     bytes: buffer.length,
     folder: targetFolder,

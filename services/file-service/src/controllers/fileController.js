@@ -5,7 +5,8 @@ async function getUploadSignature(req, res, next) {
   try {
     const { folder, resourceType, customTransform, tags, publicId } = req.body || {};
 
-    const targetFolder = typeof folder === 'string' ? folder.trim().toLowerCase() : 'general';
+    const rawFolder = typeof folder === 'string' ? folder.trim().toLowerCase() : 'general';
+    const targetFolder = rawFolder.replace(/^ieee_portal\//, '');
     if (!config.allowedFolders.has(targetFolder)) {
       return res.status(400).json({
         error: `Invalid folder. Allowed folders: ${Array.from(config.allowedFolders).join(', ')}`,
@@ -92,7 +93,7 @@ async function uploadFile(req, res, next) {
 function getServiceConfig(req, res) {
   return res.status(200).json({
     service: 'portal-file-service',
-    uploadMode: config.cloudinary.isConfigured ? 'cloudinary' : 'local_mock',
+    uploadMode: config.cloudinary.isConfigured ? 'cloudinary' : 'test_mock',
     cloudName: config.cloudinary.cloudName || 'demo',
     allowedFolders: Array.from(config.allowedFolders),
     creditSavingPolicy: {

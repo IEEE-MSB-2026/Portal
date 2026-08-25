@@ -3,9 +3,9 @@ const assert = require('node:assert/strict');
 const http = require('node:http');
 const jwt = require('jsonwebtoken');
 
-const app = require('../src/index');
+const app = require('../src/app');
 const config = require('../src/config');
-const { buildCoreGatewayHeaders, buildEventClaimsHeaders } = require('../src/signer');
+const { buildCoreGatewayHeaders, buildEventClaimsHeaders } = require('../src/utils/signer');
 
 describe('Gateway & IAM Service Tests', () => {
   let server;
@@ -30,27 +30,9 @@ describe('Gateway & IAM Service Tests', () => {
     assert.equal(body.service, 'portal-gateway');
   });
 
-  test('GET /api/auth/personas returns list of configured personas without passwords', async () => {
-    const res = await fetch(`${baseUrl}/api/auth/personas`);
-    assert.equal(res.status, 200);
-    const body = await res.json();
-    assert.ok(Array.isArray(body.personas));
-    assert.ok(body.personas.length >= 7);
 
-    // Assert passwords are not exposed
-    body.personas.forEach((p) => {
-      assert.equal(p.password, undefined);
-      assert.ok(p.id);
-      assert.ok(p.email);
-      assert.ok(p.role);
-    });
 
-    const admin = body.personas.find((p) => p.role === 'admin');
-    assert.ok(admin);
-    assert.equal(admin.scopeType, 'global');
-  });
-
-  test('POST /api/auth/login validates credentials and issues JWT token', async () => {
+  test('POST /api/auth/login validates credentials and issues JWT token + refresh token', async () => {
     const res = await fetch(`${baseUrl}/api/auth/login`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -60,6 +42,7 @@ describe('Gateway & IAM Service Tests', () => {
     assert.equal(res.status, 200);
     const body = await res.json();
     assert.ok(body.token);
+    assert.ok(body.refreshToken);
     assert.equal(body.user.email, 'admin@ieee.local');
     assert.equal(body.user.role, 'admin');
 
@@ -78,7 +61,7 @@ describe('Gateway & IAM Service Tests', () => {
     assert.equal(res.status, 401);
   });
 
-  test('POST /api/auth/register creates a new user account with token', async () => {
+  test('POST /api/auth/register creates a new user account with token pair', async () => {
     const uniqueEmail = `volunteer-${Date.now()}@ieee.local`;
     const res = await fetch(`${baseUrl}/api/auth/register`, {
       method: 'POST',
@@ -95,9 +78,10 @@ describe('Gateway & IAM Service Tests', () => {
     assert.equal(res.status, 201);
     const body = await res.json();
     assert.ok(body.token);
+    assert.ok(body.refreshToken);
     assert.equal(body.user.email, uniqueEmail);
     assert.equal(body.user.scopeType, 'committee');
-    assert.equal(body.user.committeeId, '11111111-1111-4111-8111-111111111111');
+    assert.equal(body.user.scopeId, '11111111-1111-4111-8111-111111111111');
   });
 
   test('GET /api/auth/me returns current user identity with valid token', async () => {
@@ -116,53 +100,120 @@ describe('Gateway & IAM Service Tests', () => {
     const meBody = await meRes.json();
     assert.equal(meBody.user.email, 'lead.ai@ieee.local');
     assert.equal(meBody.user.role, 'lead');
-    assert.equal(meBody.user.committeeName, 'AI');
+    assert.equal(meBody.user.scopeType, 'committee');
   });
 
-  test('POST /api/auth/switch-context switches active session role and issues new JWT', async () => {
+  test('POST /api/auth/switch-context validates server-side scopes and blocks unauthorized requests', async () => {
     const loginRes = await fetch(`${baseUrl}/api/auth/login`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ email: 'lead.ai@ieee.local', password: 'password123' }),
     });
-    const { token } = await loginRes.json();
+    const { token, user } = await loginRes.json();
+    assert.ok(user.availableScopes && user.availableScopes.length > 0);
 
-    const switchRes = await fetch(`${baseUrl}/api/auth/switch-context`, {
+    // 1. Authorized switch to possessed role/scope using targetScopeId from availableScopes
+    const memberScope = user.availableScopes.find((s) => s.role === 'member' && s.scopeType === 'committee');
+    assert.ok(memberScope);
+
+    const validSwitchRes = await fetch(`${baseUrl}/api/auth/switch-context`, {
       method: 'POST',
       headers: {
         authorization: `Bearer ${token}`,
         'content-type': 'application/json',
       },
       body: JSON.stringify({
-        role: 'member',
-        scopeType: 'committee',
-        committeeId: '33333333-3333-4333-8333-333333333333',
-        committeeName: 'PR',
+        targetScopeId: memberScope.id,
       }),
     });
 
-    assert.equal(switchRes.status, 200);
-    const switchBody = await switchRes.json();
-    assert.ok(switchBody.token);
-    assert.notEqual(switchBody.token, token);
-    assert.equal(switchBody.user.role, 'member');
-    assert.equal(switchBody.user.committeeName, 'PR');
+    assert.equal(validSwitchRes.status, 200);
+    const validBody = await validSwitchRes.json();
+    assert.ok(validBody.token);
+    assert.equal(validBody.user.role, 'member');
+    assert.equal(validBody.user.activeScope.id, memberScope.id);
 
-    const decoded = jwt.verify(switchBody.token, config.jwtSecret);
-    assert.equal(decoded.role, 'member');
-    assert.equal(decoded.committeeName, 'PR');
+    // 2. Unauthorized switch to an unpossessed scope ID returns 403
+    const forbiddenSwitchRes = await fetch(`${baseUrl}/api/auth/switch-context`, {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${token}`,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        targetScopeId: 'unauthorized-scope-uuid',
+      }),
+    });
+
+    assert.equal(forbiddenSwitchRes.status, 403);
+    const forbiddenBody = await forbiddenSwitchRes.json();
+    assert.ok(forbiddenBody.error.includes('not possess'));
+  });
+
+  test('Refresh Token Rotation: POST /api/auth/refresh rotates token and detects reuse', async () => {
+    const loginRes = await fetch(`${baseUrl}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ email: 'lead.ai@ieee.local', password: 'password123' }),
+    });
+    const { refreshToken: firstRefreshToken } = await loginRes.json();
+    assert.ok(firstRefreshToken);
+
+    // 1. First refresh succeeds and rotates token
+    const refreshRes = await fetch(`${baseUrl}/api/auth/refresh`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ refreshToken: firstRefreshToken }),
+    });
+
+    assert.equal(refreshRes.status, 200);
+    const refreshBody = await refreshRes.json();
+    assert.ok(refreshBody.token);
+    assert.ok(refreshBody.refreshToken);
+    assert.notEqual(refreshBody.refreshToken, firstRefreshToken);
+
+    // 2. Replay attack: reusing the first refresh token must trigger reuse detection and return 403
+    const replayRes = await fetch(`${baseUrl}/api/auth/refresh`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ refreshToken: firstRefreshToken }),
+    });
+
+    assert.equal(replayRes.status, 403);
+    const replayBody = await replayRes.json();
+    assert.ok(replayBody.error.includes('reuse detected'));
+  });
+
+  test('POST /api/auth/logout revokes session', async () => {
+    const loginRes = await fetch(`${baseUrl}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ email: 'admin@ieee.local', password: 'password123' }),
+    });
+    const { refreshToken } = await loginRes.json();
+
+    const logoutRes = await fetch(`${baseUrl}/api/auth/logout`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ refreshToken }),
+    });
+
+    assert.equal(logoutRes.status, 200);
   });
 
   test('Signer: buildCoreGatewayHeaders generates valid HMAC signature headers', () => {
-    const headers = buildCoreGatewayHeaders({
-      method: 'GET',
-      path: '/core/me/dashboard',
-      userId: 'user-123',
-      email: 'user@ieee.local',
-      role: 'member',
-      scopeType: 'global',
-      scopeId: 'global',
-    });
+    const headers = buildCoreGatewayHeaders(
+      'GET',
+      '/core/me/dashboard',
+      {
+        userId: 'user-123',
+        email: 'user@ieee.local',
+        role: 'member',
+        scopeType: 'global',
+        scopeId: 'global',
+      },
+      config.gatewaySharedSecret
+    );
 
     assert.ok(headers['x-gateway-signature']);
     assert.ok(headers['x-gateway-timestamp']);
@@ -171,11 +222,14 @@ describe('Gateway & IAM Service Tests', () => {
   });
 
   test('Signer: buildEventClaimsHeaders generates valid signed claims for Event Register', () => {
-    const headers = buildEventClaimsHeaders({
-      role: 'scanner',
-      scopeType: 'event',
-      scopeId: '507f1f77bcf86cd799439011',
-    });
+    const headers = buildEventClaimsHeaders(
+      {
+        role: 'scanner',
+        scopeType: 'event',
+        scopeId: '507f1f77bcf86cd799439011',
+      },
+      config.claimsHmacSecret
+    );
 
     assert.ok(headers['x-auth-claims']);
     assert.ok(headers['x-auth-signature']);

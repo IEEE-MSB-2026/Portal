@@ -1,6 +1,8 @@
 ### ==============================================================================
-### IEEE Menoufia Student Branch Portal - Manual API Testing Flows
-### Compatible with VS Code REST Client / Thunder Client / Postman
+### IEEE MENOUFIA STUDENT BRANCH PORTAL - COMPLETE MANUAL FLOWS TEST SUITE
+### ==============================================================================
+### Use VS Code REST Client extension (humao.rest-client) or IntelliJ HTTP Client.
+### Sequential variables (@name) automatically propagate IDs & JWT tokens between requests.
 ### ==============================================================================
 
 @gatewayUrl = http://localhost:4000
@@ -9,24 +11,23 @@
 @emailUrl = http://localhost:3060
 @fileUrl = http://localhost:5080
 
-### Global Tokens (Populated after login or pasted manually)
-@adminToken = eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhZG1pbi0xIiwiZW1haWwiOiJhZG1pbkBpZWVlLmxvY2FsIiwicm9sZSI6ImFkbWluIiwic2NvcGVUeXBlIjoiZ2xvYmFsIiwic2NvcGVJZCI6Imdsb2JhbCIsIm5hbWUiOiJJRUVFIEJyYW5jaCBDaGFpciAoQWRtaW4pIiwiY29tbWl0dGVlSWQiOm51bGwsImNvbW1pdHRlZU5hbWUiOm51bGwsImlhdCI6MTc4NzU5MjM2NywiZXhwIjoxNzg3Njc4NzY3fQ.2FqYGf8Jy-Az0r4DFTTtnzHMYiZIJ9mF8MoJIUl_iEQ
-@leadAiToken = eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJsZWFkLWFpLTEiLCJlbWFpbCI6ImxlYWQuYWlAaWVlZS5sb2NhbCIsInJvbGUiOiJsZWFkIiwic2NvcGVUeXBlIjoiY29tbWl0dGVlIiwic2NvcGVJZCI6IjExMTExMTExLTExMTEtNDExMS04MTExLTExMTExMTExMTExMSIsIm5hbWUiOiJBSSBDb21taXR0ZWUgTGVhZCIsImNvbW1pdHRlZUlkIjoiMTExMTExMTEtMTExMS00MTExLTgxMTEtMTExMTExMTExMTExIiwiY29tbWl0dGVlTmFtZSI6IkFJIiwiaWF0IjoxNzg3NTEwMTA2LCJleHAiOjE3ODc1OTY1MDZ9.Un-mfy4KCX4TpwTcWOGh66P6dA9MXN3t4i4Q1rYmmtg
-@memberAiToken = eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJtZW1iZXItYWktMSIsImVtYWlsIjoibWVtYmVyLmFpQGllZWUubG9jYWwiLCJyb2xlIjoibWVtYmVyIiwic2NvcGVUeXBlIjoiY29tbWl0dGVlIiwic2NvcGVJZCI6IjMyMzIzMjMyLTMyMzItNDMyMy04MzIzLTMyMzIzMjMyMzIzMiIsIm5hbWUiOiJBSSBBY3RpdmUgTWVtYmVyIiwiY29tbWl0dGVlSWQiOiIzMjMyMzIzMi0zMjMyLTQzMjMtODMyMy0zMjMyMzIzMjMyMzIiLCJjb21taXR0ZWVOYW1lIjoiQUkiLCJpYXQiOjE3ODc1ODQ0MDgsImV4cCI6MTc4NzY3MDgwOH0.s_PwuQeYUjH2SByMtCKeE4MSKl9wdS1h7JeeEQk6yUw
-@applicantToken = 
+@aiCommitteeId = 11111111-1111-4111-8111-111111111111
+@hrCommitteeId = 32323232-3232-4323-8323-323232323232
+@prCommitteeId = 55555555-5555-4555-8555-555555555555
+@mediaCommitteeId = 66666666-6666-4666-8666-666666666666
 
 
 ### ==============================================================================
 ### FLOW 1: Health & Connectivity Probes
 ### ==============================================================================
 
-### 1.1 Gateway Health
+### 1.1 Gateway Service Health
 GET {{gatewayUrl}}/health
 
-### 1.2 Core Platform Health
+### 1.2 Core Platform Service Health
 GET {{coreUrl}}/health
 
-### 1.3 Event Register Health
+### 1.3 Event Register Service Health
 GET {{eventUrl}}/api/v1/health
 
 ### 1.4 Email Service Health
@@ -37,11 +38,19 @@ GET {{fileUrl}}/health
 
 
 ### ==============================================================================
-### FLOW 2: Authentication & Context Switching (Gateway IAM)
+### FLOW 2: Authentication, Context Switching & Token Lifecycle
 ### ==============================================================================
 
-### 2.1 Get Pre-configured Personas
-GET {{gatewayUrl}}/api/auth/personas
+### 2.1 Register a New Volunteer
+# @name registerUser
+POST {{gatewayUrl}}/api/auth/register
+Content-Type: application/json
+
+{
+  "email": "karim.volunteer@ieee.local",
+  "password": "password123",
+  "name": "Karim Volunteer"
+}
 
 ### 2.2 Login as Admin
 # @name loginAdmin
@@ -83,66 +92,78 @@ Content-Type: application/json
   "password": "password123"
 }
 
-### 2.6 Check Current Identity Profile (Use Admin Token)
+### 2.6 Check Current Identity Profile (Admin)
 GET {{gatewayUrl}}/api/auth/me
 Authorization: Bearer {{loginAdmin.response.body.token}}
 
-### 2.7 Switch Active Context/Role (e.g. Lead switching to Global Admin or PR Volunteer)
+### 2.7 Switch Active Context/Role (AI Member switches scope by targetScopeId)
+# @name switchContext
 POST {{gatewayUrl}}/api/auth/switch-context
-Authorization: Bearer {{loginLeadAi.response.body.token}}
+Authorization: Bearer {{loginMemberAi.response.body.token}}
 Content-Type: application/json
 
 {
-  "role": "member",
-  "scopeType": "committee",
-  "scopeId": "11111111-1111-4111-8111-111111111111"
+  "targetScopeId": "{{aiCommitteeId}}"
+}
+
+### 2.8 Refresh Token Rotation (Issues new token pair and rotates refresh token)
+# @name refreshToken
+POST {{gatewayUrl}}/api/auth/refresh
+Content-Type: application/json
+
+{
+  "refreshToken": "{{loginAdmin.response.body.refreshToken}}"
+}
+
+### 2.9 Revoke Session & Logout
+POST {{gatewayUrl}}/api/auth/logout
+Authorization: Bearer {{loginAdmin.response.body.token}}
+Content-Type: application/json
+
+{
+  "refreshToken": "{{refreshToken.response.body.refreshToken}}"
 }
 
 
 ### ==============================================================================
-### FLOW 3: Public Catalog Discovery (Unauthenticated / Visitor)
+### FLOW 3: Public Catalog Discovery (Visitor / Public)
 ### ==============================================================================
 
-### 3.1 List All 7 Public Committees (RAS, AI, Web, Cyber, HR, PR, Media)
+### 3.1 List All Public Committees
 GET {{gatewayUrl}}/api/core/public/committees
 
 ### 3.2 List Public Published Announcements
 GET {{gatewayUrl}}/api/core/public/announcements
 
-### 3.3 List Published Media Albums
+### 3.3 List Public Published Media Albums
 GET {{gatewayUrl}}/api/core/public/media/albums
-
-### 3.4 List Public Branch Events
-GET {{gatewayUrl}}/api/events
 
 
 ### ==============================================================================
 ### FLOW 4: Committee Workspace & Task Lifecycle
 ### ==============================================================================
 
-@aiCommitteeId = 11111111-1111-4111-8111-111111111111
-
 ### 4.1 Lead Views AI Committee Workspace
 GET {{gatewayUrl}}/api/core/committees/{{aiCommitteeId}}/workspace
 Authorization: Bearer {{loginLeadAi.response.body.token}}
 
-### 4.2 Lead Assigns New Task to Member
+### 4.2 Lead Assigns Task to Committee Member
 # @name createTask
 POST {{gatewayUrl}}/api/core/committees/{{aiCommitteeId}}/tasks
 Authorization: Bearer {{loginLeadAi.response.body.token}}
 Content-Type: application/json
 
 {
-  "title": "Prepare Computer Vision Workshop Slides",
-  "description": "Create 20 slides covering OpenCV basics and PyTorch CNNs",
+  "title": "Develop Computer Vision Pipeline Demo",
+  "description": "Implement YOLOv8 object detection model for the upcoming robotics showcase.",
   "assigneeUserId": "member-ai-1",
-  "dueAt": "2026-09-01T12:00:00.000Z"
+  "priority": "high",
+  "dueDate": "2026-09-15T18:00:00.000Z"
 }
 
 ### 4.3 Member Checks Personal Dashboard
 GET {{gatewayUrl}}/api/core/me/dashboard
-# Authorization: Bearer {{loginMemberAi.response.body.token}}
-Authorization: Bearer {{{{memberAiToken}}}}
+Authorization: Bearer {{loginMemberAi.response.body.token}}
 
 ### 4.4 Member Updates Task Status: todo -> in_progress
 PATCH {{gatewayUrl}}/api/core/tasks/{{createTask.response.body.task.id}}/status
@@ -153,7 +174,7 @@ Content-Type: application/json
   "status": "in_progress"
 }
 
-### 4.5 Member Updates Task Status: in_progress -> done
+### 4.5 Member Completes Task: in_progress -> done
 PATCH {{gatewayUrl}}/api/core/tasks/{{createTask.response.body.task.id}}/status
 Authorization: Bearer {{loginMemberAi.response.body.token}}
 Content-Type: application/json
@@ -162,41 +183,37 @@ Content-Type: application/json
   "status": "done"
 }
 
-### 4.6 Lead Uploads Learning Resource Document
-GET {{gatewayUrl}}/api/core/committees/{{aiCommitteeId}}/resources
+### 4.6 Lead Uploads Committee Learning Resource Document
+POST {{gatewayUrl}}/api/core/committees/{{aiCommitteeId}}/resources
 Authorization: Bearer {{loginLeadAi.response.body.token}}
 Content-Type: application/json
 
 {
-  "title": "Computer Vision 2026 Roadmap & Syllabus",
-  "description": "Full syllabus for the 8-week bootcamp",
-  "url": "https://res.cloudinary.com/demo/image/upload/f_auto,q_auto/ieee_portal/resources/cv-syllabus.pdf",
+  "title": "Computer Vision & PyTorch Starter Guide",
+  "url": "https://res.cloudinary.com/demo/image/upload/v1/ieee_portal/resources/cv_guide.pdf",
   "resourceType": "document"
 }
 
-GET {{gatewayUrl}}/api/core/committees/{{aiCommitteeId}}/resources
-Authorization: Bearer {{loginLeadAi.response.body.token}}
-
-### 4.7 Lead Posts Internal Committee Announcement (With Image)
+### 4.7 Lead Posts Internal Committee Announcement (With Image Attachment)
 POST {{gatewayUrl}}/api/core/committees/{{aiCommitteeId}}/announcements
 Authorization: Bearer {{loginLeadAi.response.body.token}}
 Content-Type: application/json
 
 {
   "title": "Weekly Committee Sync Meeting",
-  "body": "Join us this Friday at 6:00 PM on Google Meet for project updates.",
-  "imageUrl": "https://res.cloudinary.com/demo/image/upload/f_auto,q_auto/ieee_portal/announcements/sync-banner.jpg"
+  "body": "Join us this Friday at 6:00 PM on Google Meet for project sprint reviews.",
+  "imageUrl": "https://res.cloudinary.com/demo/image/upload/f_auto,q_auto/ieee_portal/announcements/sync-banner.jpg",
+  "caption": "Project Sprint Review Agenda"
 }
 
 ### 4.8 Committee Members View Internal Announcements
 GET {{gatewayUrl}}/api/core/committees/{{aiCommitteeId}}/announcements
-Authorization: Bearer {{loginLeadAi.response.body.token}}
+Authorization: Bearer {{loginMemberAi.response.body.token}}
+
 
 ### ==============================================================================
 ### FLOW 5: HR Recruitment Campaign & Onboarding Pipeline
 ### ==============================================================================
-
-@hrCommitteeId = 32323232-3232-4323-8323-323232323232
 
 ### 5.1 Admin Creates Recruitment Campaign
 # @name createCampaign
@@ -205,113 +222,101 @@ Authorization: Bearer {{loginAdmin.response.body.token}}
 Content-Type: application/json
 
 {
-  "committeeId": "{{hrCommitteeId}}",
-  "title": "Fall 2026 IEEE Volunteer Recruitment",
-  "description": "Recruiting volunteers across RAS, AI, Web, Cyber, HR, PR, and Media",
+  "committeeId": "{{aiCommitteeId}}",
+  "title": "Annual IEEE AI Committee Recruitment 2026",
+  "targetHeadcount": 15,
   "opensAt": "2026-08-01T00:00:00.000Z",
-  "closesAt": "2026-09-15T23:59:59.000Z",
-  "status": "open",
-  "formSchema": {
-    "fullName": { "type": "string", "label": "Full Name", "required": true },
-    "universityYear": { "type": "string", "label": "University Year", "required": true },
-    "whyJoin": { "type": "string", "label": "Why do you want to join IEEE?", "required": true },
-    "resumeUrl": { "type": "string", "label": "Resume URL (PDF)", "required": true }
-  }
+  "closesAt": "2026-10-01T00:00:00.000Z",
+  "status": "open"
 }
 
-### 5.2 Applicant Submits Recruitment Application
-# @name submitApp
+### 5.2 Applicant Submits Application
+# @name submitApplication
 POST {{gatewayUrl}}/api/core/hr/applications
 Authorization: Bearer {{loginApplicant.response.body.token}}
 Content-Type: application/json
 
 {
   "campaignId": "{{createCampaign.response.body.campaign.id}}",
-  "committeeId": "{{hrCommitteeId}}",
+  "committeeId": "{{aiCommitteeId}}",
   "answers": {
-    "fullName": "Karim Ahmed",
-    "universityYear": "3rd Year Computer Science",
-    "whyJoin": "Passionate about organizing technical hackathons",
-    "resumeUrl": "https://res.cloudinary.com/demo/image/upload/ieee_portal/applications/karim-resume.pdf"
-  }
+    "fullName": "Karim Volunteer",
+    "universityMajor": "Computer Science & Artificial Intelligence",
+    "academicYear": "3rd Year",
+    "motivation": "Eager to contribute to IEEE open-source machine learning workshops."
+  },
+  "resumeUrl": "https://res.cloudinary.com/demo/image/upload/v1/ieee_portal/resumes/karim_cv.pdf"
 }
 
-### 5.3 HR Lead Advances Application: applied -> screening
-PATCH {{gatewayUrl}}/api/core/hr/applications/{{submitApp.response.body.application.id}}/stage
+### 5.3 HR Lead Transitions Stage: applied -> screening
+PATCH {{gatewayUrl}}/api/core/hr/applications/{{submitApplication.response.body.application.id}}/stage
 Authorization: Bearer {{loginAdmin.response.body.token}}
 Content-Type: application/json
 
 {
   "stage": "screening",
-  "notes": "Resume meets technical requirements."
+  "notes": "Strong background in Python and neural network basics."
 }
 
-### 5.4 HR Lead Advances Application: screening -> interview
-PATCH {{gatewayUrl}}/api/core/hr/applications/{{submitApp.response.body.application.id}}/stage
+### 5.4 HR Lead Transitions Stage: screening -> interview
+PATCH {{gatewayUrl}}/api/core/hr/applications/{{submitApplication.response.body.application.id}}/stage
 Authorization: Bearer {{loginAdmin.response.body.token}}
 Content-Type: application/json
 
 {
   "stage": "interview",
-  "notes": "Scheduled for behavioral interview on Saturday.",
-  "score": 85
+  "notes": "Technical interview scheduled for Wednesday 4:00 PM."
 }
 
-### 5.5 HR Lead Advances Application: interview -> final_review
-PATCH {{gatewayUrl}}/api/core/hr/applications/{{submitApp.response.body.application.id}}/stage
+### 5.5 HR Lead Transitions Stage: interview -> final_review
+PATCH {{gatewayUrl}}/api/core/hr/applications/{{submitApplication.response.body.application.id}}/stage
 Authorization: Bearer {{loginAdmin.response.body.token}}
 Content-Type: application/json
 
 {
   "stage": "final_review",
-  "notes": "Strong communication and leadership skills."
+  "notes": "Passed technical interview with high score."
 }
 
-### 5.6 HR Lead Accepts Application (Assigns Member Role & Generates Checklist)
-POST {{gatewayUrl}}/api/core/hr/applications/{{submitApp.response.body.application.id}}/accept
+### 5.6 HR Lead Accepts Applicant (Syncs Role to IAM Gateway)
+POST {{gatewayUrl}}/api/core/hr/applications/{{submitApplication.response.body.application.id}}/accept
 Authorization: Bearer {{loginAdmin.response.body.token}}
 Content-Type: application/json
 
 {
-  "notes": "Welcome to IEEE Menoufia!"
+  "note": "Welcome to IEEE Menoufia AI Committee!"
 }
 
-### 5.7 Check Onboarding Checklist Items for Candidate
-GET {{gatewayUrl}}/api/core/hr/onboarding/applicant-1
-Authorization: Bearer {{loginAdmin.response.body.token}}
+### 5.7 Accepted Member Updates Onboarding Checklist
+# @name listOnboarding
+GET {{gatewayUrl}}/api/core/hr/onboarding/me
+Authorization: Bearer {{loginApplicant.response.body.token}}
 
-### 5.8 View HR Recruitment Funnel Summary Report
-GET {{gatewayUrl}}/api/core/hr/reports/pipeline-summary
-Authorization: Bearer {{loginAdmin.response.body.token}}
-
-
-### ==============================================================================
-### FLOW 6: PR Broadcast & Media Operations Flow
-### ==============================================================================
-
-### 6.1 PR Lead Posts Public Branch Announcement
-POST {{gatewayUrl}}/api/core/pr/announcements
-Authorization: Bearer {{loginAdmin.response.body.token}}
+### 5.8 Member Marks Onboarding Item Done
+PATCH {{gatewayUrl}}/api/core/hr/onboarding/items/{{listOnboarding.response.body.items[0].id}}
+Authorization: Bearer {{loginApplicant.response.body.token}}
 Content-Type: application/json
 
 {
-  "title": "IEEE Menoufia Mega Tech Festival Announced!",
-  "body": "3 days of robotics competitions, AI workshops, and cybersecurity challenges.",
-  "visibility": "public",
-  "committeeId": "{{aiCommitteeId}}"
+  "status": "done"
 }
 
-### 6.2 Media Lead Requests Cloudinary Presigned Direct Upload Signature
+
+### ==============================================================================
+### FLOW 6: PR Broadcast & Media Operations
+### ==============================================================================
+
+### 6.1 Media Lead Requests Upload Signature (Auto Credit-Saving Transforms)
 POST {{gatewayUrl}}/api/files/signature
 Authorization: Bearer {{loginAdmin.response.body.token}}
 Content-Type: application/json
 
 {
-  "folder": "media_albums",
-  "resourceType": "image"
+  "folder": "ieee_portal/media_albums",
+  "tags": ["media", "robotics", "2026"]
 }
 
-### 6.3 Media Lead Creates Album
+### 6.2 Media Lead Creates Draft Media Album
 # @name createAlbum
 POST {{gatewayUrl}}/api/core/media/albums
 Authorization: Bearer {{loginAdmin.response.body.token}}
@@ -319,136 +324,209 @@ Content-Type: application/json
 
 {
   "committeeId": "{{aiCommitteeId}}",
-  "title": "AI Bootcamp 2026 Photo Gallery",
-  "description": "Memories and hands-on session highlights"
+  "title": "IEEE AI & Robotics Live Expo 2026",
+  "description": "Comprehensive photo gallery covering autonomous robotics trials and AI exhibitions."
 }
 
-### 6.4 Media Lead Attaches Photo Asset to Album
+### 6.3 Attach Relational Photo Asset to Album
 POST {{gatewayUrl}}/api/core/media/albums/{{createAlbum.response.body.album.id}}/assets
 Authorization: Bearer {{loginAdmin.response.body.token}}
 Content-Type: application/json
 
 {
-  "assetUrl": "https://res.cloudinary.com/demo/image/upload/f_auto,q_auto/ieee_portal/media_albums/ai-bootcamp-01.jpg",
+  "assetUrl": "https://res.cloudinary.com/demo/image/upload/f_auto,q_auto/ieee_portal/media_albums/robotics-01.jpg",
+  "assetType": "image",
+  "caption": "Autonomous navigation trial run on obstacle course"
+}
+
+### 6.4 Attach Second Photo Asset to Album
+POST {{gatewayUrl}}/api/core/media/albums/{{createAlbum.response.body.album.id}}/assets
+Authorization: Bearer {{loginAdmin.response.body.token}}
+Content-Type: application/json
+
+{
+  "assetUrl": "https://res.cloudinary.com/demo/image/upload/f_auto,q_auto/ieee_portal/media_albums/robotics-02.jpg",
   "assetType": "image",
   "caption": "Participants training deep neural networks"
 }
 
-### 6.5 Media Lead Publishes Album
+### 6.5 Media Lead Publishes Album to Public Gallery
 POST {{gatewayUrl}}/api/core/media/albums/{{createAlbum.response.body.album.id}}/publish
 Authorization: Bearer {{loginAdmin.response.body.token}}
 
-### 6.6 Committee Lead Requests Media Coverage for Workshop
-# @name createCoverage
-POST {{gatewayUrl}}/api/core/media/coverage-requests
-Authorization: Bearer {{loginLeadAi.response.body.token}}
-Content-Type: application/json
-
-{
-  "committeeId": "{{aiCommitteeId}}",
-  "mediaCommitteeId": "{{aiCommitteeId}}",
-  "title": "Live Video & Photography for AI Project Showcase",
-  "eventAt": "2026-09-20T10:00:00.000Z",
-  "description": "Need photographer and videographer for 3 hours."
-}
-
-### 6.7 Media Lead Accepts Coverage Request
-PATCH {{gatewayUrl}}/api/core/media/coverage-requests/{{createCoverage.response.body.request.id}}/status
-Authorization: Bearer {{loginAdmin.response.body.token}}
-Content-Type: application/json
-
-{
-  "status": "accepted"
-}
+### 6.6 Public Views Published Album and Its Assets
+GET {{gatewayUrl}}/api/core/public/media/albums/{{createAlbum.response.body.album.id}}/assets
 
 
 ### ==============================================================================
 ### FLOW 7: Member Avatar Management
 ### ==============================================================================
 
-### 7.1 Request Avatar Presigned Signature (with face crop transform)
+### 7.1 Request Avatar Upload Signature (Face Detection Crop)
 POST {{gatewayUrl}}/api/files/signature
 Authorization: Bearer {{loginMemberAi.response.body.token}}
 Content-Type: application/json
 
 {
-  "folder": "avatars",
-  "resourceType": "image"
+  "folder": "ieee_portal/avatars"
 }
 
-### 7.2 Update Member Profile Avatar URL in Core Platform
+### 7.2 Update User Profile Avatar URL
 PATCH {{gatewayUrl}}/api/core/me/avatar
 Authorization: Bearer {{loginMemberAi.response.body.token}}
 Content-Type: application/json
 
 {
-  "avatarUrl": "https://res.cloudinary.com/demo/image/upload/f_auto,q_auto,c_fill,w_400,h_400,g_face/ieee_portal/avatars/member-ai-profile.jpg"
+  "avatarUrl": "https://res.cloudinary.com/demo/image/upload/f_auto,q_auto,c_fill,w_400,h_400,g_face/ieee_portal/avatars/member-avatar.jpg"
 }
 
-### 7.3 Verify Updated Avatar in Dashboard
+### 7.3 Verify Updated Avatar on Dashboard
 GET {{gatewayUrl}}/api/core/me/dashboard
 Authorization: Bearer {{loginMemberAi.response.body.token}}
 
 
 ### ==============================================================================
-### FLOW 8: Event Management, QR Ticketing & Scanner Check-in
+### FLOW 8: Event Registration & Scanner Check-in
 ### ==============================================================================
 
-### 8.1 Create Branch Event with Banner
+### 8.1 Create Tech Summit Event
 # @name createEvent
 POST {{gatewayUrl}}/api/events
 Authorization: Bearer {{loginAdmin.response.body.token}}
 Content-Type: application/json
 
 {
-  "name": "Menoufia AI Summit 2026",
-  "description": "Premier Artificial Intelligence & Robotics Conference",
-  "date": "2026-10-15T09:00:00.000Z",
-  "location": "Faculty of Electronic Engineering Main Auditorium",
+  "name": "Menoufia Tech Summit 2026",
+  "description": "Annual flagship engineering and computing conference",
+  "date": "2026-09-20T09:00:00.000Z",
+  "location": "Main University Auditorium",
   "bannerUrl": "https://res.cloudinary.com/demo/image/upload/f_auto,q_auto/ieee_portal/events/summit-banner.jpg"
 }
 
-### 8.2 Register Participant for Event
+### 8.2 Create Activity Check-In Point
+# @name createActivity
+POST {{gatewayUrl}}/api/events/{{createEvent.response.body.event._id}}/activities
+Authorization: Bearer {{loginAdmin.response.body.token}}
+Content-Type: application/json
+
+{
+  "name": "Main Hall Entrance Check-In",
+  "type": "Check-In"
+}
+
+### 8.3 Register Participant for Event
 # @name registerParticipant
 POST {{gatewayUrl}}/api/events/{{createEvent.response.body.event._id}}/participants
 Authorization: Bearer {{loginAdmin.response.body.token}}
 Content-Type: application/json
 
 {
-  "name": "Ahmed Hassan",
-  "email": "ahmed.hassan@example.com",
+  "name": "Sara Youssef",
+  "email": "sara.youssef@ieee.local",
   "phone": "+201001234567"
 }
 
-### 8.3 Scanner Check-in via QR Ticket Scan
+### 8.4 Scanner Check-in via Activity QR
 POST {{gatewayUrl}}/api/events/{{createEvent.response.body.event._id}}/qr/scan
 Authorization: Bearer {{loginAdmin.response.body.token}}
 Content-Type: application/json
 
 {
-  "ticketId": "{{registerParticipant.response.body.participant._id}}"
+  "ticketId": "{{registerParticipant.response.body.participant._id}}",
+  "activityQrId": "{{createActivity.response.body.activity.qrId}}"
 }
 
-### 8.4 View Event Attendance Report
+### 8.5 View Event Attendance Report
 GET {{gatewayUrl}}/api/events/{{createEvent.response.body.event._id}}/attendance/report
 Authorization: Bearer {{loginAdmin.response.body.token}}
 
-### 8.5 Export Attendance CSV
+### 8.6 Export Attendance CSV
 GET {{gatewayUrl}}/api/events/{{createEvent.response.body.event._id}}/attendance/export
 Authorization: Bearer {{loginAdmin.response.body.token}}
 
 
 ### ==============================================================================
-### FLOW 9: Transactional Email Dispatch
+### FLOW 9: Direct Transactional Email
 ### ==============================================================================
 
-### 9.1 Send Single Transactional Email
-POST {{emailUrl}}/email/send
+### 9.1 Send Direct Transactional Email (Authenticated)
+POST {{emailUrl}}/email/direct
+x-service-token: 9H57+vk8BTVVP9SAeO6PMBbbDHr3iCFdihM+iJATte4=
 Content-Type: application/json
-x-service-token: 2nUcG0xRi652tH8Y1RW/lsA2+BOvli2RvbNSfeMwl1Q=
 
 {
-  "to": "test-member@ieee.local",
+  "to": ["karim.volunteer@ieee.local"],
   "subject": "Welcome to IEEE Menoufia Student Branch!",
   "html": "<h1>Welcome Karim!</h1><p>Your onboarding checklist is ready in the portal.</p>"
+}
+
+
+### ==============================================================================
+### FLOW 10: Security, Negative Assertions & Attack Defense
+### ==============================================================================
+
+### 10.1 Rejects Bad Password Credentials (Expects 401 Unauthorized)
+POST {{gatewayUrl}}/api/auth/login
+Content-Type: application/json
+
+{
+  "email": "admin@ieee.local",
+  "password": "wrong-password-attack"
+}
+
+### 10.2 Rejects Unauthorized Context Switching (Expects 403 Forbidden)
+POST {{gatewayUrl}}/api/auth/switch-context
+Authorization: Bearer {{loginMemberAi.response.body.token}}
+Content-Type: application/json
+
+{
+  "targetScopeId": "99999999-9999-4999-8999-999999999999"
+}
+
+### 10.3 Detects Refresh Token Replay & Revokes Family (Expects 403 Forbidden)
+POST {{gatewayUrl}}/api/auth/refresh
+Content-Type: application/json
+
+{
+  "refreshToken": "{{loginAdmin.response.body.refreshToken}}"
+}
+
+### 10.4 Empty Media Album Publish Guard (Expects 400 Bad Request)
+# @name createEmptyAlbum
+POST {{gatewayUrl}}/api/core/media/albums
+Authorization: Bearer {{loginAdmin.response.body.token}}
+Content-Type: application/json
+
+{
+  "committeeId": "{{aiCommitteeId}}",
+  "title": "Empty Album Test",
+  "description": "Should fail to publish without photos"
+}
+
+### 10.5 Attempt Publish of Empty Album (Expects 400 Bad Request)
+POST {{gatewayUrl}}/api/core/media/albums/{{createEmptyAlbum.response.body.album.id}}/publish
+Authorization: Bearer {{loginAdmin.response.body.token}}
+
+### 10.6 Non-Admin Blocked from Admin Role Assignment (Expects 401/403)
+POST {{gatewayUrl}}/admin/roles/assign
+Authorization: Bearer {{loginMemberAi.response.body.token}}
+Content-Type: application/json
+
+{
+  "userId": "member-ai-1",
+  "role": "admin",
+  "scopeType": "global",
+  "scopeId": "global"
+}
+
+### 10.7 Unauthenticated Request Blocked from Committee Workspace (Expects 401)
+GET {{gatewayUrl}}/api/core/committees/{{aiCommitteeId}}/workspace
+
+### 10.8 Applicant Blocked from Restricted Media Folder Upload (Expects 403 Forbidden)
+POST {{gatewayUrl}}/api/files/signature
+Authorization: Bearer {{loginApplicant.response.body.token}}
+Content-Type: application/json
+
+{
+  "folder": "ieee_portal/media_albums"
 }

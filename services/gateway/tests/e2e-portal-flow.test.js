@@ -14,7 +14,7 @@ const { prepareDatabase, IDS, closePool } = require('../../core-platform/tests/i
 const coreConfig = require('../../core-platform/src/config');
 const coreApp = require('../../core-platform/src/app');
 const fileApp = require('../../file-service/src/app');
-const gatewayApp = require('../src/index');
+const gatewayApp = require('../src/app');
 const config = require('../src/config');
 
 describe('Master End-to-End Portal Flow Verification', () => {
@@ -46,7 +46,9 @@ describe('Master End-to-End Portal Flow Verification', () => {
     await new Promise((resolve) => gatewayServer.listen(0, '127.0.0.1', resolve));
     gatewayBaseUrl = `http://127.0.0.1:${gatewayServer.address().port}`;
 
+    const fileConfig = require('../../file-service/src/config');
     config.gatewaySharedSecret = coreConfig.gatewaySharedSecret;
+    fileConfig.gatewaySharedSecret = coreConfig.gatewaySharedSecret;
     config.iamServiceAuthToken = 'test-iam-token';
     coreConfig.iam.serviceUrl = gatewayBaseUrl;
     coreConfig.iam.serviceAuthToken = 'test-iam-token';

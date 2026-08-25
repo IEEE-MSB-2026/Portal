@@ -13,8 +13,10 @@ function createPool() {
 
   return new Pool({
     connectionString: config.databaseUrl,
+    max: parseInt(process.env.DB_POOL_MAX || '20', 10),
     connectionTimeoutMillis: 5000,
     idleTimeoutMillis: 30000,
+    keepAlive: true,
   });
 }
 

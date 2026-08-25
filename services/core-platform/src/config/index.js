@@ -84,7 +84,7 @@ const config = {
   logLevel: process.env.LOG_LEVEL || 'info',
   port: parsePort(requireEnv('PORT')),
   databaseUrl: requireEnv('DATABASE_URL'),
-  gatewaySharedSecret: requireEnv('CORE_GATEWAY_SHARED_SECRET'),
+  gatewaySharedSecret: process.env.CORE_GATEWAY_SHARED_SECRET || process.env.GATEWAY_SHARED_SECRET || requireEnv('CORE_GATEWAY_SHARED_SECRET'),
   gatewayMaxSkewSeconds: 60,
   notification: {
     emailServiceUrl: parseOptionalUrl('EMAIL_SERVICE_URL'),

@@ -2,6 +2,8 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 
+const MIGRATIONS_ADVISORY_LOCK_ID = 847291038472;
+
 function sha256(content) {
   return crypto.createHash('sha256').update(content).digest('hex');
 }
@@ -27,8 +29,18 @@ async function runMigrations({ pool, migrationsDir, logger = console }) {
   const resolvedDir = migrationsDir || path.join(__dirname, '../../migrations');
   const files = getMigrationFiles(resolvedDir);
   const client = await pool.connect();
+  let lockAcquired = false;
 
   try {
+    // Acquire distributed advisory lock to prevent race conditions during multi-instance autoscaling
+    try {
+      await client.query('SELECT pg_advisory_lock($1)', [MIGRATIONS_ADVISORY_LOCK_ID]);
+      lockAcquired = true;
+    } catch (err) {
+      // In-memory mock databases (e.g. pg-mem) do not support pg_advisory_lock
+      logger.debug?.({ err: err.message }, 'Advisory lock skipped or unsupported by database');
+    }
+
     await ensureMigrationsTable(client);
 
     const appliedRows = await client.query('SELECT name, checksum FROM schema_migrations');
@@ -62,6 +74,13 @@ async function runMigrations({ pool, migrationsDir, logger = console }) {
       }
     }
   } finally {
+    if (lockAcquired) {
+      try {
+        await client.query('SELECT pg_advisory_unlock($1)', [MIGRATIONS_ADVISORY_LOCK_ID]);
+      } catch (err) {
+        logger.warn?.({ err: err.message }, 'Failed to release pg_advisory_unlock');
+      }
+    }
     client.release();
   }
 }
