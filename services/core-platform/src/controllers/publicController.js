@@ -54,8 +54,37 @@ async function listPublicCommittees(req, res, next) {
   }
 }
 
+const officerRepository = require('../repositories/officerRepository');
+
+async function listPublicOfficers(req, res, next) {
+  try {
+    const { season } = req.query;
+    const officers = await officerRepository.listPublicOfficers({ season });
+    return res.status(200).json({
+      season: season || (officers[0]?.season || null),
+      count: officers.length,
+      officers,
+    });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+async function listPublicSeasons(req, res, next) {
+  try {
+    const seasons = await officerRepository.listSeasons();
+    return res.status(200).json({
+      seasons,
+    });
+  } catch (error) {
+    return next(error);
+  }
+}
+
 module.exports = {
   listPublicCommittees,
   listPublicAnnouncements: prAnnouncementController.listPublicAnnouncements,
   listPublicAlbums: mediaAlbumController.listPublicAlbums,
+  listPublicOfficers,
+  listPublicSeasons,
 };

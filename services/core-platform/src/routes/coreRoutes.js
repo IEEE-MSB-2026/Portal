@@ -14,6 +14,7 @@ const prAnnouncementController = require('../controllers/prAnnouncementControlle
 const prCampaignController = require('../controllers/prCampaignController');
 const mediaAlbumController = require('../controllers/mediaAlbumController');
 const mediaCoverageController = require('../controllers/mediaCoverageController');
+const officerAdminController = require('../controllers/officerAdminController');
 const routesController = require('../controllers/routesController');
 const { attachUserRef, requireCommitteeScope, verifyGatewaySignature } = require('../middlewares/gatewayAuth');
 
@@ -59,6 +60,9 @@ router.post('/media/albums/:albumId/assets', mediaAlbumController.addAlbumAsset)
 router.post('/media/albums/:albumId/publish', mediaAlbumController.publishAlbum);
 router.post('/media/coverage-requests', mediaCoverageController.createCoverageRequest);
 router.patch('/media/coverage-requests/:requestId/status', mediaCoverageController.updateCoverageStatus);
+router.post('/admin/officers', officerAdminController.createOfficer);
+router.patch('/admin/officers/:id', officerAdminController.updateOfficer);
+router.delete('/admin/officers/:id', officerAdminController.deleteOfficer);
 router.get('/routes', routesController.getCoreRoutes);
 
 module.exports = router;

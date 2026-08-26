@@ -5,8 +5,13 @@ let pool;
 
 function createPool() {
   if (process.env.CORE_USE_PGMEM === 'true') {
+    const crypto = require('crypto');
     const { newDb } = require('pg-mem');
     const db = newDb();
+    db.public.registerFunction({
+      name: 'gen_random_uuid',
+      implementation: () => crypto.randomUUID(),
+    });
     const adapter = db.adapters.createPg();
     return new adapter.Pool();
   }
