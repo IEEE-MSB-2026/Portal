@@ -4,3 +4,6 @@
 [submodule "services/event-register"]
 	path = services/event-register
 	url = git@github.com:IEEE-MSB-2026/event-register.git
+[submodule "apps/portal-web"]
+	path = apps/portal-web
+	url = https://github.com/IEEE-MSB-2026/portal-web.git
