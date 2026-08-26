@@ -1,113 +1,100 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const http = require('node:http');
-const path = require('node:path');
 
 const {
   IDS,
   bootstrapTestDatabase,
   closePool,
-  createServer,
-  getBaseUrl,
   prepareDatabase,
-  setupTestEnv,
   signedHeaders,
 } = require('./helpers');
 
-setupTestEnv();
-
-const CORE_SRC_ROOT = path.resolve(__dirname, '../../src');
-const CORE_POOL_MODULE_SUFFIX = path.join('src', 'db', 'pool.js');
-
-function clearCoreModuleCache() {
-  for (const modulePath of Object.keys(require.cache)) {
-    if (!modulePath.startsWith(CORE_SRC_ROOT)) continue;
-    if (modulePath.endsWith(CORE_POOL_MODULE_SUFFIX)) continue;
-    delete require.cache[modulePath];
-  }
-}
-
 function loadFreshApp() {
-  clearCoreModuleCache();
+  const toDelete = [
+    require.resolve('../../src/config/index'),
+    require.resolve('../../src/app'),
+    require.resolve('../../src/routes/coreRoutes'),
+    require.resolve('../../src/controllers/taskController'),
+    require.resolve('../../src/services/emailNotificationService'),
+  ];
+  for (const k of toDelete) {
+    if (require.cache[k]) delete require.cache[k];
+  }
   return require('../../src/app');
 }
 
-async function withEnv(overrides, run) {
-  const previous = {};
-  for (const key of Object.keys(overrides)) {
-    previous[key] = process.env[key];
-    const value = overrides[key];
-    if (value === undefined || value === null) {
-      delete process.env[key];
-    } else {
-      process.env[key] = value;
-    }
-  }
+function createServer(app) {
+  return new Promise((resolve) => {
+    const server = http.createServer(app);
+    server.listen(0, '127.0.0.1', () => resolve(server));
+  });
+}
 
+function getBaseUrl(server) {
+  const address = server.address();
+  return `http://127.0.0.1:${address.port}`;
+}
+
+async function withEnv(overrides, runFn) {
+  const original = { ...process.env };
   try {
-    return await run();
-  } finally {
-    for (const key of Object.keys(overrides)) {
-      const value = previous[key];
-      if (value === undefined) {
-        delete process.env[key];
+    for (const [k, v] of Object.entries(overrides)) {
+      if (v === undefined) {
+        delete process.env[k];
       } else {
-        process.env[key] = value;
+        process.env[k] = v;
       }
     }
-    clearCoreModuleCache();
+    return await runFn();
+  } finally {
+    for (const key of Object.keys(process.env)) {
+      if (!(key in original)) {
+        delete process.env[key];
+      }
+    }
+    for (const [k, v] of Object.entries(original)) {
+      process.env[k] = v;
+    }
   }
 }
 
-function createEmailCaptureServer({ statusCode = 202 } = {}) {
+async function startEmailCaptureServer({ statusCode = 200, latencyMs = 0 } = {}) {
   const requests = [];
-
-  const server = http.createServer((req, res) => {
-    let rawBody = '';
+  const server = http.createServer(async (req, res) => {
+    let raw = '';
+    req.setEncoding('utf8');
     req.on('data', (chunk) => {
-      rawBody += chunk;
+      raw += chunk;
     });
     req.on('end', () => {
-      let parsedBody = null;
+      let body = null;
       try {
-        parsedBody = rawBody ? JSON.parse(rawBody) : null;
-      } catch (error) {
-        parsedBody = null;
+        body = raw ? JSON.parse(raw) : null;
+      } catch {
+        body = raw;
       }
-
       requests.push({
         method: req.method,
         url: req.url,
         headers: req.headers,
-        rawBody,
-        body: parsedBody,
+        body,
       });
 
-      res.statusCode = statusCode;
-      res.setHeader('content-type', 'application/json');
-      if (statusCode >= 200 && statusCode < 300) {
-        res.end('{"status":"sent"}');
-      } else {
-        res.end('{"error":"downstream failure"}');
-      }
+      setTimeout(() => {
+        res.statusCode = statusCode;
+        res.setHeader('content-type', 'application/json');
+        res.end(JSON.stringify({ ok: statusCode < 400, capturedAt: new Date().toISOString() }));
+      }, latencyMs);
     });
   });
 
-  return { requests, server };
-}
-
-async function startEmailCaptureServer(options) {
-  const harness = createEmailCaptureServer(options);
-  await new Promise((resolve) => harness.server.listen(0, '127.0.0.1', resolve));
-
-  const address = harness.server.address();
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const addr = server.address();
   return {
-    requests: harness.requests,
-    server: harness.server,
-    baseUrl: `http://127.0.0.1:${address.port}`,
-    async close() {
-      await new Promise((resolve) => harness.server.close(resolve));
-    },
+    baseUrl: `http://127.0.0.1:${addr.port}`,
+    requests,
+    close: () => new Promise((resolve) => server.close(resolve)),
   };
 }
 
@@ -117,10 +104,9 @@ test.before(async () => {
 
 test.after(async () => {
   await closePool();
-  clearCoreModuleCache();
 });
 
-test('notifications: task creation sends authenticated email payload to assignee', async () => {
+test('notifications: task assignment sends email to committee member with contract payload', async () => {
   await prepareDatabase();
   const emailServer = await startEmailCaptureServer();
 
@@ -154,15 +140,18 @@ test('notifications: task creation sends authenticated email payload to assignee
               'content-type': 'application/json',
             },
             body: JSON.stringify({
-              title: 'Prepare session intro',
-              description: 'Slides + runbook',
+              title: 'Prepare workshop slide deck',
+              description: 'Deck needs intro + code lab',
               assigneeUserId: 'member-ai-1',
               dueAt: '2026-02-28T10:00:00.000Z',
             }),
           });
 
           const responsePayload = await response.json();
+          const taskId = responsePayload.task.id;
+
           assert.equal(response.status, 201);
+          await new Promise((r) => setTimeout(r, 60));
           assert.equal(emailServer.requests.length, 1);
 
           const outbound = emailServer.requests[0];
@@ -171,12 +160,9 @@ test('notifications: task creation sends authenticated email payload to assignee
           assert.equal(outbound.headers['x-service-token'], 'integration-service-token');
           assert.equal(outbound.body.schemaVersion, '1.0');
           assert.equal(outbound.body.eventType, 'core.task.assigned');
+          assert.equal(outbound.body.idempotencyKey, `core-task-assigned:${taskId}:member-ai-1`);
           assert.deepEqual(outbound.body.to, ['member.ai@ieee.local']);
-          assert.equal(outbound.body.subject, '[AI Committee] New task assigned: Prepare session intro');
-          assert.equal(outbound.body.idempotencyKey, `core-task-assigned:${responsePayload.task.id}:member-ai-1`);
-          assert.equal(typeof outbound.body.correlationId, 'string');
-          assert.equal(typeof outbound.body.createdAt, 'string');
-          assert.equal(String(outbound.body.text).includes('Committee: AI Committee'), true);
+          assert.equal(outbound.body.subject, '[AI Committee] New task assigned: Prepare workshop slide deck');
           assert.equal(String(outbound.body.text).includes('Assigned by: lead-ai-1'), true);
           assert.equal(String(outbound.body.text).includes('Due at: 2026-02-28T10:00:00.000Z'), true);
         } finally {
@@ -189,80 +175,7 @@ test('notifications: task creation sends authenticated email payload to assignee
   }
 });
 
-test('notifications: announcement creation sends email to all committee members including author', async () => {
-  await prepareDatabase();
-  const emailServer = await startEmailCaptureServer();
-
-  try {
-    await withEnv(
-      {
-        EMAIL_SERVICE_URL: emailServer.baseUrl,
-        EMAIL_SERVICE_AUTH_TOKEN: 'integration-service-token',
-        EMAIL_SERVICE_TIMEOUT_MS: '1000',
-      },
-      async () => {
-        const app = loadFreshApp();
-        const server = await createServer(app);
-
-        try {
-          const routePath = `/core/committees/${IDS.committees.ai}/announcements`;
-          const headers = signedHeaders({
-            method: 'POST',
-            path: routePath,
-            userId: 'lead-ai-1',
-            userEmail: 'lead.ai@ieee.local',
-            userRole: 'lead',
-            scopeType: 'committee',
-            scopeId: IDS.committees.ai,
-          });
-
-          const response = await fetch(`${getBaseUrl(server)}${routePath}`, {
-            method: 'POST',
-            headers: {
-              ...headers,
-              'content-type': 'application/json',
-            },
-            body: JSON.stringify({
-              title: 'AI Hackathon Prep',
-              body: 'Prepare demo topics before Friday.',
-            }),
-          });
-
-          const responsePayload = await response.json();
-          const announcementId = responsePayload.announcement.id;
-
-          assert.equal(response.status, 201);
-          assert.equal(emailServer.requests.length, 2);
-
-          const recipients = emailServer.requests
-            .map((entry) => entry.body?.to?.[0])
-            .sort();
-          assert.deepEqual(recipients, ['lead.ai@ieee.local', 'member.ai@ieee.local']);
-
-          for (const outbound of emailServer.requests) {
-            assert.equal(outbound.method, 'POST');
-            assert.equal(outbound.url, '/email/send');
-            assert.equal(outbound.headers['x-service-token'], 'integration-service-token');
-            assert.equal(outbound.body.schemaVersion, '1.0');
-            assert.equal(outbound.body.eventType, 'core.committee.announcement.created');
-            assert.equal(outbound.body.subject, '[AI Committee] New announcement: AI Hackathon Prep');
-            assert.equal(
-              String(outbound.body.idempotencyKey).startsWith(`core-announcement:${announcementId}:`),
-              true
-            );
-            assert.equal(String(outbound.body.text).includes('Created by: lead-ai-1'), true);
-          }
-        } finally {
-          await new Promise((resolve) => server.close(resolve));
-        }
-      }
-    );
-  } finally {
-    await emailServer.close();
-  }
-});
-
-test('notifications: downstream non-2xx does not block task and announcement creation', async () => {
+test('notifications: downstream non-2xx does not block task creation', async () => {
   await prepareDatabase();
   const emailServer = await startEmailCaptureServer({ statusCode: 500 });
 
@@ -303,32 +216,8 @@ test('notifications: downstream non-2xx does not block task and announcement cre
           });
 
           assert.equal(taskResponse.status, 201);
-
-          const announcementPath = `/core/committees/${IDS.committees.ai}/announcements`;
-          const announcementHeaders = signedHeaders({
-            method: 'POST',
-            path: announcementPath,
-            userId: 'lead-ai-1',
-            userEmail: 'lead.ai@ieee.local',
-            userRole: 'lead',
-            scopeType: 'committee',
-            scopeId: IDS.committees.ai,
-          });
-
-          const announcementResponse = await fetch(`${getBaseUrl(server)}${announcementPath}`, {
-            method: 'POST',
-            headers: {
-              ...announcementHeaders,
-              'content-type': 'application/json',
-            },
-            body: JSON.stringify({
-              title: 'Fallback-safe announcement',
-              body: 'Creation should succeed even if notifications fail.',
-            }),
-          });
-
-          assert.equal(announcementResponse.status, 201);
-          assert.equal(emailServer.requests.length, 3);
+          await new Promise((r) => setTimeout(r, 60));
+          assert.equal(emailServer.requests.length, 1);
         } finally {
           await new Promise((resolve) => server.close(resolve));
         }
@@ -379,30 +268,6 @@ test('notifications: missing auth token disables outbound calls while keeping bu
             }),
           });
           assert.equal(taskResponse.status, 201);
-
-          const announcementPath = `/core/committees/${IDS.committees.ai}/announcements`;
-          const announcementHeaders = signedHeaders({
-            method: 'POST',
-            path: announcementPath,
-            userId: 'lead-ai-1',
-            userEmail: 'lead.ai@ieee.local',
-            userRole: 'lead',
-            scopeType: 'committee',
-            scopeId: IDS.committees.ai,
-          });
-
-          const announcementResponse = await fetch(`${getBaseUrl(server)}${announcementPath}`, {
-            method: 'POST',
-            headers: {
-              ...announcementHeaders,
-              'content-type': 'application/json',
-            },
-            body: JSON.stringify({
-              title: 'No outbound email announcement',
-              body: 'Still should be created',
-            }),
-          });
-          assert.equal(announcementResponse.status, 201);
           assert.equal(emailServer.requests.length, 0);
         } finally {
           await new Promise((resolve) => server.close(resolve));

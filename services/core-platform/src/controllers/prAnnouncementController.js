@@ -3,19 +3,20 @@ const { HttpError } = require('../utils/httpErrors');
 const { isUuid } = require('../utils/ids');
 const { parseLimit } = require('../utils/pagination');
 const authzService = require('../services/authzService');
-const committeesRepository = require('../repositories/committeesRepository');
 const prAnnouncementsRepository = require('../repositories/prAnnouncementsRepository');
 
 const ALLOWED_VISIBILITY = new Set(['internal', 'public']);
+const ALLOWED_ADMIN_ROLES = new Set(['admin', 'officer', 'publisher', 'lead']);
 
 function toAnnouncementResponse(row) {
   return {
     id: row.id,
-    committeeId: row.committee_id,
-    committeeName: row.committee_name,
     title: row.title,
     body: row.body,
+    category: row.category || 'General',
     imageUrl: row.image_url || null,
+    isPinned: Boolean(row.is_pinned),
+    authorName: row.author_name || 'Branch Executive Board',
     visibility: row.visibility,
     createdByUserRefId: row.created_by_user_ref_id,
     createdByUserId: row.created_by_external_user_id,
@@ -47,15 +48,14 @@ function parseBoolean(value, fallback = false) {
 }
 
 function parseCreateInput(body) {
-  const committeeId = typeof body?.committeeId === 'string' ? body.committeeId.trim() : '';
   const title = typeof body?.title === 'string' ? body.title.trim() : '';
   const announcementBody = typeof body?.body === 'string' ? body.body.trim() : '';
+  const category = typeof body?.category === 'string' ? body.category.trim() : 'General';
   const imageUrl = typeof body?.imageUrl === 'string' ? body.imageUrl.trim() : null;
-  const visibility = parseVisibility(body?.visibility, 'internal');
+  const isPinned = body?.isPinned !== undefined ? Boolean(body.isPinned) : false;
+  const authorName = typeof body?.authorName === 'string' ? body.authorName.trim() : 'Branch Executive Board';
+  const visibility = parseVisibility(body?.visibility, 'public');
 
-  if (!isUuid(committeeId)) {
-    throw new HttpError(400, 'committeeId is required and must be a valid UUID');
-  }
   if (!title) {
     throw new HttpError(400, 'title is required');
   }
@@ -63,13 +63,24 @@ function parseCreateInput(body) {
     throw new HttpError(400, 'body is required');
   }
 
-  return { committeeId, title, body: announcementBody, imageUrl: imageUrl || null, visibility };
+  return {
+    title,
+    body: announcementBody,
+    category,
+    imageUrl: imageUrl || null,
+    isPinned,
+    authorName,
+    visibility,
+  };
 }
 
 function parseUpdateInput(body) {
   const title = typeof body?.title === 'string' ? body.title.trim() : null;
   const announcementBody = typeof body?.body === 'string' ? body.body.trim() : null;
+  const category = typeof body?.category === 'string' ? body.category.trim() : null;
   const imageUrl = typeof body?.imageUrl === 'string' ? body.imageUrl.trim() : (body?.imageUrl === null ? null : undefined);
+  const isPinned = body?.isPinned !== undefined ? Boolean(body.isPinned) : undefined;
+  const authorName = typeof body?.authorName === 'string' ? body.authorName.trim() : null;
   const visibility = parseVisibility(body?.visibility, null);
 
   if (title !== null && !title) {
@@ -78,8 +89,16 @@ function parseUpdateInput(body) {
   if (announcementBody !== null && !announcementBody) {
     throw new HttpError(400, 'body must not be empty');
   }
-  if (title === null && announcementBody === null && visibility === null && imageUrl === undefined) {
-    throw new HttpError(400, 'At least one of title, body, imageUrl, visibility is required');
+  if (
+    title === null &&
+    announcementBody === null &&
+    category === null &&
+    visibility === null &&
+    imageUrl === undefined &&
+    isPinned === undefined &&
+    authorName === null
+  ) {
+    throw new HttpError(400, 'At least one field to update is required');
   }
 
   return {
@@ -87,40 +106,39 @@ function parseUpdateInput(body) {
     title,
     hasBody: announcementBody !== null,
     body: announcementBody,
+    hasCategory: category !== null,
+    category,
     hasImageUrl: imageUrl !== undefined,
     imageUrl: imageUrl || null,
+    hasIsPinned: isPinned !== undefined,
+    isPinned,
+    hasAuthorName: authorName !== null,
+    authorName,
     hasVisibility: visibility !== null,
     visibility,
   };
 }
 
-async function ensureManageAccess(identity, committeeId) {
-  const membershipRole = await authzService.getMembershipRoleForCommittee(identity, committeeId);
-  const canManage = authzService.canManagePrCommittee({
-    identity,
-    membershipRole,
-    committeeId,
-  });
-  if (!canManage) {
-    throw new HttpError(403, 'Forbidden');
+function ensureGlobalManageAccess(identity) {
+  const role = identity?.role;
+  const isGlobalPublisher = ALLOWED_ADMIN_ROLES.has(role) || identity?.scopeType === 'global';
+  if (!isGlobalPublisher) {
+    throw new HttpError(403, 'Forbidden: Official announcement management requires admin, officer, or publisher role');
   }
 }
 
 async function createAnnouncement(req, res, next) {
   try {
+    ensureGlobalManageAccess(req.identity);
     const payload = parseCreateInput(req.body || {});
-    const committee = await committeesRepository.getCommitteeById(payload.committeeId);
-    if (!committee) {
-      throw new HttpError(404, 'Committee not found');
-    }
-
-    await ensureManageAccess(req.identity, payload.committeeId);
 
     const announcement = await prAnnouncementsRepository.createAnnouncement({
-      committeeId: payload.committeeId,
       title: payload.title,
       body: payload.body,
+      category: payload.category,
       imageUrl: payload.imageUrl,
+      isPinned: payload.isPinned,
+      authorName: payload.authorName,
       visibility: payload.visibility,
       actorUserRefId: req.identity.userRefId,
     });
@@ -131,6 +149,8 @@ async function createAnnouncement(req, res, next) {
       actorUserRefId: req.identity.userRefId,
       metadata: {
         title: announcement.title,
+        category: announcement.category,
+        isPinned: announcement.is_pinned,
         visibility: announcement.visibility,
       },
     });
@@ -139,10 +159,9 @@ async function createAnnouncement(req, res, next) {
       event: 'pr.announcement.created',
       requestId: req.requestId,
       announcementId: announcement.id,
-      committeeId: announcement.committee_id,
       actorUserId: req.identity.externalUserId,
+      category: announcement.category,
       visibility: announcement.visibility,
-      hasImage: Boolean(payload.imageUrl),
     });
 
     return res.status(201).json({
@@ -155,35 +174,26 @@ async function createAnnouncement(req, res, next) {
 
 async function listAnnouncements(req, res, next) {
   try {
-    const committeeId = typeof req.query?.committeeId === 'string' ? req.query.committeeId.trim() : '';
+    ensureGlobalManageAccess(req.identity);
+
+    const category = typeof req.query?.category === 'string' ? req.query.category.trim() : null;
+    const search = typeof req.query?.search === 'string' ? req.query.search.trim() : null;
     const visibility = parseVisibility(req.query?.visibility, null);
     const includeDeleted = parseBoolean(req.query?.includeDeleted, false);
     const limit = parseLimit(req.query?.limit, 50, 100);
-
-    if (committeeId && !isUuid(committeeId)) {
-      throw new HttpError(400, 'Invalid committeeId format');
-    }
-
-    let effectiveCommitteeIds = null;
-    if (committeeId) {
-      await ensureManageAccess(req.identity, committeeId);
-    } else {
-      effectiveCommitteeIds = await authzService.listManageablePrCommitteeIds(req.identity);
-      if (Array.isArray(effectiveCommitteeIds) && effectiveCommitteeIds.length === 0) {
-        throw new HttpError(403, 'Forbidden');
-      }
-    }
+    const offset = Math.max(0, Number.parseInt(req.query?.offset, 10) || 0);
 
     const announcements = await prAnnouncementsRepository.listAnnouncements({
-      committeeId: committeeId || null,
-      committeeIds: committeeId ? null : effectiveCommitteeIds,
+      category,
+      search,
       visibility,
       includeDeleted,
       limit,
+      offset,
     });
 
     return res.status(200).json({
-      announcements: announcements.map((row) => toAnnouncementResponse(row)),
+      announcements: announcements.map(toAnnouncementResponse),
     });
   } catch (error) {
     return next(error);
@@ -192,6 +202,8 @@ async function listAnnouncements(req, res, next) {
 
 async function updateAnnouncement(req, res, next) {
   try {
+    ensureGlobalManageAccess(req.identity);
+
     const announcementId = req.params.announcementId;
     if (!isUuid(announcementId)) {
       throw new HttpError(400, 'Invalid announcementId format');
@@ -204,14 +216,15 @@ async function updateAnnouncement(req, res, next) {
       throw new HttpError(404, 'Announcement not found');
     }
 
-    await ensureManageAccess(req.identity, existing.committee_id);
-
     const payload = parseUpdateInput(req.body || {});
     const updated = await prAnnouncementsRepository.updateAnnouncement({
       announcementId,
       title: payload.hasTitle ? payload.title : existing.title,
       body: payload.hasBody ? payload.body : existing.body,
+      category: payload.hasCategory ? payload.category : existing.category,
       imageUrl: payload.hasImageUrl ? payload.imageUrl : existing.image_url,
+      isPinned: payload.hasIsPinned ? payload.isPinned : existing.is_pinned,
+      authorName: payload.hasAuthorName ? payload.authorName : existing.author_name,
       visibility: payload.hasVisibility ? payload.visibility : existing.visibility,
       actorUserRefId: req.identity.userRefId,
     });
@@ -227,12 +240,12 @@ async function updateAnnouncement(req, res, next) {
       metadata: {
         before: {
           title: existing.title,
-          body: existing.body,
+          category: existing.category,
           visibility: existing.visibility,
         },
         after: {
           title: updated.title,
-          body: updated.body,
+          category: updated.category,
           visibility: updated.visibility,
         },
       },
@@ -242,7 +255,6 @@ async function updateAnnouncement(req, res, next) {
       event: 'pr.announcement.updated',
       requestId: req.requestId,
       announcementId: updated.id,
-      committeeId: updated.committee_id,
       actorUserId: req.identity.externalUserId,
       visibility: updated.visibility,
     });
@@ -257,6 +269,8 @@ async function updateAnnouncement(req, res, next) {
 
 async function deleteAnnouncement(req, res, next) {
   try {
+    ensureGlobalManageAccess(req.identity);
+
     const announcementId = req.params.announcementId;
     if (!isUuid(announcementId)) {
       throw new HttpError(400, 'Invalid announcementId format');
@@ -268,8 +282,6 @@ async function deleteAnnouncement(req, res, next) {
     if (!existing || existing.deleted_at) {
       throw new HttpError(404, 'Announcement not found');
     }
-
-    await ensureManageAccess(req.identity, existing.committee_id);
 
     const deleted = await prAnnouncementsRepository.softDeleteAnnouncement({
       announcementId,
@@ -285,7 +297,7 @@ async function deleteAnnouncement(req, res, next) {
       action: 'deleted',
       actorUserRefId: req.identity.userRefId,
       metadata: {
-        deletedAt: deleted.deleted_at,
+        title: deleted.title,
       },
     });
 
@@ -293,36 +305,13 @@ async function deleteAnnouncement(req, res, next) {
       event: 'pr.announcement.deleted',
       requestId: req.requestId,
       announcementId: deleted.id,
-      committeeId: deleted.committee_id,
       actorUserId: req.identity.externalUserId,
     });
 
     return res.status(200).json({
+      success: true,
+      announcementId: deleted.id,
       announcement: toAnnouncementResponse(deleted),
-    });
-  } catch (error) {
-    return next(error);
-  }
-}
-
-async function getAnnouncement(req, res, next) {
-  try {
-    const announcementId = req.params.announcementId;
-    if (!isUuid(announcementId)) {
-      throw new HttpError(400, 'Invalid announcementId format');
-    }
-
-    const announcement = await prAnnouncementsRepository.getAnnouncementById(announcementId, {
-      includeDeleted: false,
-    });
-    if (!announcement) {
-      throw new HttpError(404, 'Announcement not found');
-    }
-
-    await ensureManageAccess(req.identity, announcement.committee_id);
-
-    return res.status(200).json({
-      announcement: toAnnouncementResponse(announcement),
     });
   } catch (error) {
     return next(error);
@@ -331,15 +320,22 @@ async function getAnnouncement(req, res, next) {
 
 async function listPublicAnnouncements(req, res, next) {
   try {
+    const category = typeof req.query?.category === 'string' ? req.query.category.trim() : null;
+    const search = typeof req.query?.search === 'string' ? req.query.search.trim() : null;
     const limit = parseLimit(req.query?.limit, 50, 100);
+    const offset = Math.max(0, Number.parseInt(req.query?.offset, 10) || 0);
+
     const announcements = await prAnnouncementsRepository.listAnnouncements({
+      category,
+      search,
       visibility: 'public',
       includeDeleted: false,
       limit,
+      offset,
     });
 
     return res.status(200).json({
-      announcements: announcements.map((row) => toAnnouncementResponse(row)),
+      announcements: announcements.map(toAnnouncementResponse),
     });
   } catch (error) {
     return next(error);
@@ -348,9 +344,8 @@ async function listPublicAnnouncements(req, res, next) {
 
 module.exports = {
   createAnnouncement,
-  deleteAnnouncement,
-  getAnnouncement,
   listAnnouncements,
-  listPublicAnnouncements,
   updateAnnouncement,
+  deleteAnnouncement,
+  listPublicAnnouncements,
 };

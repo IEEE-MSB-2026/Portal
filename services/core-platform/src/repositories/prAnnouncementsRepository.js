@@ -1,13 +1,26 @@
 const { randomUUID } = require('crypto');
 const { query } = require('../db/pool');
 
+const ALLOWED_CATEGORIES = new Set(['General', 'Event', 'Recruitment', 'Technical', 'Competition']);
+
+function normalizeCategory(raw) {
+  if (!raw || typeof raw !== 'string') return 'General';
+  const trimmed = raw.trim();
+  const matched = Array.from(ALLOWED_CATEGORIES).find(
+    (c) => c.toLowerCase() === trimmed.toLowerCase()
+  );
+  return matched || 'General';
+}
+
 function mapAnnouncementColumns(prefix = 'a') {
   return `
     ${prefix}.id,
-    ${prefix}.committee_id,
     ${prefix}.title,
     ${prefix}.body,
+    ${prefix}.category,
     ${prefix}.image_url,
+    ${prefix}.is_pinned,
+    ${prefix}.author_name,
     ${prefix}.visibility,
     ${prefix}.created_by_user_ref_id,
     ${prefix}.updated_by_user_ref_id,
@@ -21,7 +34,6 @@ function mapAnnouncementColumns(prefix = 'a') {
 function mapAnnouncementSelect(prefix = 'a') {
   return `
     ${mapAnnouncementColumns(prefix)},
-    c.name AS committee_name,
     creator.external_user_id AS created_by_external_user_id,
     updater.external_user_id AS updated_by_external_user_id,
     deleter.external_user_id AS deleted_by_external_user_id
@@ -37,7 +49,6 @@ async function getAnnouncementById(announcementId, { includeDeleted = false } = 
       SELECT
         ${mapAnnouncementSelect('a')}
       FROM pr_announcements a
-      JOIN committees c ON c.id = a.committee_id
       JOIN users_ref creator ON creator.id = a.created_by_user_ref_id
       JOIN users_ref updater ON updater.id = a.updated_by_user_ref_id
       LEFT JOIN users_ref deleter ON deleter.id = a.deleted_by_user_ref_id
@@ -52,29 +63,48 @@ async function getAnnouncementById(announcementId, { includeDeleted = false } = 
 }
 
 async function createAnnouncement({
-  committeeId,
   title,
   body,
+  category = 'General',
   imageUrl = null,
-  visibility,
+  isPinned = false,
+  authorName = 'Branch Executive Board',
+  visibility = 'public',
   actorUserRefId,
 }) {
   const announcementId = randomUUID();
+  const normalizedCategory = normalizeCategory(category);
+  const normalizedAuthor = typeof authorName === 'string' && authorName.trim()
+    ? authorName.trim()
+    : 'Branch Executive Board';
+
   await query(
     `
       INSERT INTO pr_announcements (
         id,
-        committee_id,
         title,
         body,
+        category,
         image_url,
+        is_pinned,
+        author_name,
         visibility,
         created_by_user_ref_id,
         updated_by_user_ref_id
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $7)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9)
     `,
-    [announcementId, committeeId, title, body, imageUrl || null, visibility, actorUserRefId]
+    [
+      announcementId,
+      title.trim(),
+      body.trim(),
+      normalizedCategory,
+      imageUrl || null,
+      Boolean(isPinned),
+      normalizedAuthor,
+      visibility,
+      actorUserRefId,
+    ]
   );
 
   return getAnnouncementById(announcementId, { includeDeleted: true });
@@ -84,24 +114,63 @@ async function updateAnnouncement({
   announcementId,
   title,
   body,
+  category,
   imageUrl = null,
+  isPinned,
+  authorName,
   visibility,
   actorUserRefId,
 }) {
+  const updates = [];
+  const values = [announcementId];
+
+  if (title !== undefined && title !== null) {
+    values.push(title.trim());
+    updates.push(`title = $${values.length}`);
+  }
+
+  if (body !== undefined && body !== null) {
+    values.push(body.trim());
+    updates.push(`body = $${values.length}`);
+  }
+
+  if (category !== undefined && category !== null) {
+    values.push(normalizeCategory(category));
+    updates.push(`category = $${values.length}`);
+  }
+
+  if (imageUrl !== undefined) {
+    values.push(imageUrl || null);
+    updates.push(`image_url = $${values.length}`);
+  }
+
+  if (isPinned !== undefined && isPinned !== null) {
+    values.push(Boolean(isPinned));
+    updates.push(`is_pinned = $${values.length}`);
+  }
+
+  if (authorName !== undefined && authorName !== null) {
+    values.push(authorName.trim());
+    updates.push(`author_name = $${values.length}`);
+  }
+
+  if (visibility !== undefined && visibility !== null) {
+    values.push(visibility);
+    updates.push(`visibility = $${values.length}`);
+  }
+
+  values.push(actorUserRefId);
+  updates.push(`updated_by_user_ref_id = $${values.length}`);
+  updates.push(`updated_at = NOW()`);
+
   const result = await query(
     `
       UPDATE pr_announcements
-      SET
-        title = $2,
-        body = $3,
-        image_url = $4,
-        visibility = $5,
-        updated_by_user_ref_id = $6,
-        updated_at = NOW()
+      SET ${updates.join(', ')}
       WHERE id = $1 AND deleted_at IS NULL
       RETURNING id
     `,
-    [announcementId, title, body, imageUrl || null, visibility, actorUserRefId]
+    values
   );
 
   if (!result.rows[0]) return null;
@@ -128,17 +197,24 @@ async function softDeleteAnnouncement({ announcementId, actorUserRefId }) {
 }
 
 async function listAnnouncements({
-  committeeId = null,
+  category = null,
+  search = null,
   visibility = null,
   includeDeleted = false,
   limit = 50,
+  offset = 0,
 }) {
-  const values = [limit];
+  const values = [limit, offset];
   const where = [];
 
-  if (committeeId) {
-    values.push(committeeId);
-    where.push(`a.committee_id = $${values.length}`);
+  if (category && typeof category === 'string' && category.trim() && category.trim().toLowerCase() !== 'all') {
+    values.push(normalizeCategory(category));
+    where.push(`a.category = $${values.length}`);
+  }
+
+  if (search && typeof search === 'string' && search.trim()) {
+    values.push(`%${search.trim()}%`);
+    where.push(`(a.title ILIKE $${values.length} OR a.body ILIKE $${values.length})`);
   }
 
   if (visibility) {
@@ -151,26 +227,29 @@ async function listAnnouncements({
   }
 
   const whereClause = where.length ? `WHERE ${where.join(' AND ')}` : '';
-  const result = await query(
-    `
-      SELECT
-        ${mapAnnouncementSelect('a')}
-      FROM pr_announcements a
-      JOIN committees c ON c.id = a.committee_id
-      JOIN users_ref creator ON creator.id = a.created_by_user_ref_id
-      JOIN users_ref updater ON updater.id = a.updated_by_user_ref_id
-      LEFT JOIN users_ref deleter ON deleter.id = a.deleted_by_user_ref_id
-      ${whereClause}
-      ORDER BY a.created_at DESC, a.id DESC
-      LIMIT $1
-    `,
-    values
-  );
+  const queryText = `
+    SELECT
+      ${mapAnnouncementSelect('a')}
+    FROM pr_announcements a
+    JOIN users_ref creator ON creator.id = a.created_by_user_ref_id
+    JOIN users_ref updater ON updater.id = a.updated_by_user_ref_id
+    LEFT JOIN users_ref deleter ON deleter.id = a.deleted_by_user_ref_id
+    ${whereClause}
+    ORDER BY a.is_pinned DESC, a.created_at DESC
+    LIMIT $1 OFFSET $2
+  `;
 
+  const result = await query(queryText, values);
   return result.rows;
 }
 
-async function createActivityLog({ announcementId, action, actorUserRefId, metadata = {} }) {
+async function createActivityLog({
+  announcementId,
+  action,
+  actorUserRefId,
+  metadata = {},
+}) {
+  const logId = randomUUID();
   await query(
     `
       INSERT INTO pr_announcement_activity_log (
@@ -180,17 +259,18 @@ async function createActivityLog({ announcementId, action, actorUserRefId, metad
         actor_user_ref_id,
         metadata
       )
-      VALUES ($1, $2, $3, $4, $5)
+      VALUES ($1, $2, $3, $4, $5::jsonb)
     `,
-    [randomUUID(), announcementId, action, actorUserRefId, JSON.stringify(metadata || {})]
+    [logId, announcementId, action, actorUserRefId, JSON.stringify(metadata)]
   );
 }
 
 module.exports = {
-  createActivityLog,
-  createAnnouncement,
+  ALLOWED_CATEGORIES: Array.from(ALLOWED_CATEGORIES),
   getAnnouncementById,
-  listAnnouncements,
-  softDeleteAnnouncement,
+  createAnnouncement,
   updateAnnouncement,
+  softDeleteAnnouncement,
+  listAnnouncements,
+  createActivityLog,
 };

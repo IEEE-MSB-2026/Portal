@@ -114,78 +114,7 @@ test('resources: lead can create resource, member cannot create', async () => {
   }
 });
 
-test('announcements: lead can create, member can list, cross-committee forbidden', async () => {
-  await prepareDatabase();
-  const server = await createServer(app);
 
-  try {
-    const createPath = `/core/committees/${IDS.committees.ai}/announcements`;
-    const leadHeaders = signedHeaders({
-      method: 'POST',
-      path: createPath,
-      userId: 'lead-ai-1',
-      userEmail: 'lead.ai@ieee.local',
-      userRole: 'lead',
-      scopeType: 'committee',
-      scopeId: IDS.committees.ai,
-    });
-
-    const createRes = await fetch(`${getBaseUrl(server)}${createPath}`, {
-      method: 'POST',
-      headers: {
-        ...leadHeaders,
-        'content-type': 'application/json',
-      },
-      body: JSON.stringify({
-        title: 'AI Hackathon Prep',
-        body: 'Prepare demo topics before Friday.',
-        imageUrl: 'https://res.cloudinary.com/demo/image/upload/v1234/ieee_portal/announcements/hackathon.jpg',
-      }),
-    });
-
-    const createPayload = await createRes.json();
-    assert.equal(createRes.status, 201);
-    assert.equal(createPayload.announcement.imageUrl, 'https://res.cloudinary.com/demo/image/upload/v1234/ieee_portal/announcements/hackathon.jpg');
-
-    const listPath = `/core/committees/${IDS.committees.ai}/announcements`;
-    const memberHeaders = signedHeaders({
-      method: 'GET',
-      path: listPath,
-      userId: 'member-ai-1',
-      userEmail: 'member.ai@ieee.local',
-      userRole: 'member',
-      scopeType: 'committee',
-      scopeId: IDS.committees.ai,
-    });
-
-    const listRes = await fetch(`${getBaseUrl(server)}${listPath}`, { headers: memberHeaders });
-    const listPayload = await listRes.json();
-    assert.equal(listRes.status, 200);
-    assert.equal(listPayload.announcements.length >= 2, true);
-    const foundAnnouncement = listPayload.announcements.find((a) => a.title === 'AI Hackathon Prep');
-    assert.ok(foundAnnouncement);
-    assert.equal(foundAnnouncement.imageUrl, 'https://res.cloudinary.com/demo/image/upload/v1234/ieee_portal/announcements/hackathon.jpg');
-
-    const crossPath = `/core/committees/${IDS.committees.web}/announcements`;
-    const crossHeaders = signedHeaders({
-      method: 'GET',
-      path: crossPath,
-      userId: 'member-ai-1',
-      userEmail: 'member.ai@ieee.local',
-      userRole: 'member',
-      scopeType: 'committee',
-      scopeId: IDS.committees.ai,
-    });
-
-    const crossRes = await fetch(`${getBaseUrl(server)}${crossPath}`, { headers: crossHeaders });
-    const crossPayload = await crossRes.json();
-
-    assert.equal(crossRes.status, 403);
-    assert.equal(crossPayload.error, 'Forbidden');
-  } finally {
-    await new Promise((resolve) => server.close(resolve));
-  }
-});
 
 test('memberships: lead can add member; member cannot manage; lead cannot remove last lead', async () => {
   await prepareDatabase();

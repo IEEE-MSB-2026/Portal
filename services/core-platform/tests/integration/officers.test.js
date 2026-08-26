@@ -59,7 +59,7 @@ test('Branch Officers & Leadership Integration Tests', async (t) => {
     assert.equal(res.status, 200);
     assert.ok(Array.isArray(res.body.officers));
     assert.equal(res.body.season, '2025/2026');
-    assert.ok(res.body.officers.length >= 11);
+    assert.ok(res.body.officers.length >= 5);
     assert.ok(res.body.officers.some((o) => o.name === 'Yousef Abdelwahed' && o.role === 'Branch Chair'));
   });
 

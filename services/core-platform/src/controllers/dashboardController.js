@@ -2,7 +2,7 @@ const usersRepository = require('../repositories/usersRepository');
 const committeesRepository = require('../repositories/committeesRepository');
 const tasksRepository = require('../repositories/tasksRepository');
 const taskActivityRepository = require('../repositories/taskActivityRepository');
-const announcementsRepository = require('../repositories/announcementsRepository');
+const prAnnouncementsRepository = require('../repositories/prAnnouncementsRepository');
 const { decodeCursor, parseLimit } = require('../utils/pagination');
 const { HttpError } = require('../utils/httpErrors');
 
@@ -28,7 +28,7 @@ async function getMyDashboard(req, res, next) {
       committeesRepository.listCommitteesForUser(req.identity.userRefId),
       tasksRepository.listAssignedTasks(req.identity.userRefId, { limit, cursor }),
       taskActivityRepository.listRecentActivityForUserCommittees(req.identity.userRefId, { limit: 20 }),
-      announcementsRepository.listRecentAnnouncementsForUserCommittees(req.identity.userRefId, { limit: 20 }),
+      prAnnouncementsRepository.listAnnouncements({ limit: 10 }),
     ]);
 
     return res.status(200).json({
@@ -43,7 +43,17 @@ async function getMyDashboard(req, res, next) {
       committees,
       tasks: assignedTasks,
       recentActivity,
-      recentAnnouncements,
+      recentAnnouncements: recentAnnouncements.map((a) => ({
+        id: a.id,
+        title: a.title,
+        body: a.body,
+        category: a.category,
+        imageUrl: a.image_url,
+        isPinned: a.is_pinned,
+        authorName: a.author_name,
+        visibility: a.visibility,
+        createdAt: a.created_at,
+      })),
     });
   } catch (error) {
     return next(error);
@@ -58,12 +68,8 @@ async function updateMyAvatar(req, res, next) {
     }
 
     const updated = await usersRepository.updateUserAvatar(req.identity.userRefId, avatarUrl.trim());
-    if (!updated) {
-      throw new HttpError(404, 'User profile not found');
-    }
-
     return res.status(200).json({
-      success: true,
+      message: 'Avatar updated successfully',
       avatarUrl: updated.avatarUrl,
     });
   } catch (error) {
@@ -75,4 +81,3 @@ module.exports = {
   getMyDashboard,
   updateMyAvatar,
 };
-

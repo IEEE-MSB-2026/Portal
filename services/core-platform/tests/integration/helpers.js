@@ -75,7 +75,6 @@ async function resetDatabase() {
   await query('DELETE FROM hr_application_stage_log');
   await query('DELETE FROM hr_applications');
   await query('DELETE FROM hr_campaigns');
-  await query('DELETE FROM committee_announcements');
   await query('DELETE FROM committee_resources');
   await query('DELETE FROM task_activity_log');
   await query('DELETE FROM tasks');
@@ -162,23 +161,6 @@ async function seedBaseData() {
     [
       IDS.resources.aiGuide,
       IDS.resources.webGuide,
-      IDS.committees.ai,
-      IDS.committees.web,
-      IDS.usersRef.leadAi,
-      IDS.usersRef.memberWeb,
-    ]
-  );
-
-  await query(
-    `
-      INSERT INTO committee_announcements (id, committee_id, title, body, created_by_user_ref_id)
-      VALUES
-        ($1, $3, 'AI Weekly Sync', 'Weekly sync moved to Tuesday 7 PM.', $5),
-        ($2, $4, 'Web Sprint Plan', 'Sprint planning starts tomorrow.', $6)
-    `,
-    [
-      IDS.announcements.aiWeekly,
-      IDS.announcements.webWeekly,
       IDS.committees.ai,
       IDS.committees.web,
       IDS.usersRef.leadAi,
