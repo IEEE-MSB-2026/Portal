@@ -24,7 +24,7 @@ async function findByEmail(email) {
   }
 
   const userRes = await pool.query(
-    `SELECT id, email, password_hash, name, avatar_url, default_role, default_scope_type, default_scope_id 
+    `SELECT id, email, password_hash, name, avatar_url, membership_id, default_role, default_scope_type, default_scope_id 
      FROM auth_users 
      WHERE email = $1 AND is_active = TRUE 
      LIMIT 1`,
@@ -47,6 +47,7 @@ async function findByEmail(email) {
     passwordHash: user.password_hash,
     name: user.name,
     avatarUrl: user.avatar_url,
+    membershipId: user.membership_id || null,
     defaultRole: user.default_role,
     defaultScopeType: user.default_scope_type,
     defaultScopeId: user.default_scope_id,
@@ -71,7 +72,7 @@ async function findById(id) {
   }
 
   const userRes = await pool.query(
-    `SELECT id, email, password_hash, name, avatar_url, default_role, default_scope_type, default_scope_id 
+    `SELECT id, email, password_hash, name, avatar_url, membership_id, default_role, default_scope_type, default_scope_id 
      FROM auth_users 
      WHERE id = $1 AND is_active = TRUE 
      LIMIT 1`,
@@ -94,6 +95,7 @@ async function findById(id) {
     passwordHash: user.password_hash,
     name: user.name,
     avatarUrl: user.avatar_url,
+    membershipId: user.membership_id || null,
     defaultRole: user.default_role,
     defaultScopeType: user.default_scope_type,
     defaultScopeId: user.default_scope_id,
@@ -124,8 +126,9 @@ async function validateScope(userId, role, scopeType, scopeId) {
   return (res.rowCount || 0) > 0;
 }
 
-async function create({ email, password, name, role = 'member', scopeType = 'global', scopeId = 'global', committeeId = null }) {
+async function create({ email, password, name, membershipId = null, role = 'member', scopeType = 'global', scopeId = 'global', committeeId = null }) {
   const normalizedEmail = email.trim().toLowerCase();
+  const cleanMemId = typeof membershipId === 'string' && membershipId.trim() ? membershipId.trim() : null;
   const userId = crypto.randomUUID();
   const passwordHash = await hashPassword(password);
   const roleId = crypto.randomUUID();
@@ -137,12 +140,24 @@ async function create({ email, password, name, role = 'member', scopeType = 'glo
 
   const client = await pool.connect();
   try {
+    if (cleanMemId) {
+      const existingMem = await client.query(
+        'SELECT 1 FROM auth_users WHERE membership_id = $1 AND is_active = TRUE LIMIT 1',
+        [cleanMemId]
+      );
+      if (existingMem.rows.length > 0) {
+        const conflictErr = new Error('An account with this IEEE Membership ID already exists');
+        conflictErr.status = 409;
+        throw conflictErr;
+      }
+    }
+
     await client.query('BEGIN');
 
     await client.query(
-      `INSERT INTO auth_users (id, email, password_hash, name, default_role, default_scope_type, default_scope_id)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-      [userId, normalizedEmail, passwordHash, name, role, scopeType, scopeId]
+      `INSERT INTO auth_users (id, email, password_hash, name, membership_id, default_role, default_scope_type, default_scope_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+      [userId, normalizedEmail, passwordHash, name, cleanMemId, role, scopeType, scopeId]
     );
 
     await client.query(
@@ -155,6 +170,12 @@ async function create({ email, password, name, role = 'member', scopeType = 'glo
   } catch (err) {
     await client.query('ROLLBACK').catch(() => {});
     if (err.code === '23505') {
+      const detail = String(err.detail || err.message || '');
+      if (detail.includes('membership_id') || err.constraint === 'idx_auth_users_membership_id') {
+        const conflictErr = new Error('An account with this IEEE Membership ID already exists');
+        conflictErr.status = 409;
+        throw conflictErr;
+      }
       const conflictErr = new Error('User with this email already exists');
       conflictErr.status = 409;
       throw conflictErr;

@@ -187,8 +187,8 @@ describe('Master End-to-End Portal Flow Verification', () => {
     });
     assert.equal(resRes.status, 201);
 
-    // 3.6 Lead posts internal announcement
-    const annRes = await fetch(`${gatewayBaseUrl}/api/core/committees/${committeeId}/announcements`, {
+    // 3.6 Lead/Officer posts branch announcement
+    const annRes = await fetch(`${gatewayBaseUrl}/api/core/pr/announcements`, {
       method: 'POST',
       headers: {
         authorization: `Bearer ${leadAuth.token}`,
@@ -197,6 +197,8 @@ describe('Master End-to-End Portal Flow Verification', () => {
       body: JSON.stringify({
         title: 'Workshop Practice Session',
         body: 'Hands-on session on Friday 6 PM.',
+        category: 'Technical',
+        visibility: 'internal',
       }),
     });
     assert.equal(annRes.status, 201);
@@ -443,15 +445,46 @@ describe('Master End-to-End Portal Flow Verification', () => {
     assert.equal(avatarSig.folder, 'ieee_portal/avatars');
     assert.equal(avatarSig.eager, 'f_auto,q_auto,c_fill,w_400,h_400,g_face');
 
-    // Simulated uploaded avatar URL from client direct upload
+    // Simulated uploaded avatar URL and asset registry from client direct upload
     const mockAvatarUrl = 'https://res.cloudinary.com/demo/image/upload/f_auto,q_auto,c_fill,w_400,h_400,g_face/ieee_portal/avatars/member-ai-pic.jpg';
+    const mockPublicId = 'ieee_portal/avatars/member-ai-pic';
+    const mockAssetId = 'cld_asset_member_ai_' + Date.now();
+
+    // Register asset in central file_assets
+    const regRes = await fetch(`${gatewayBaseUrl}/api/files/assets`, {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${memberAuth.token}`,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        cloudinaryAssetId: mockAssetId,
+        cloudinaryPublicId: mockPublicId,
+        secureUrl: mockAvatarUrl,
+        resourceType: 'image',
+        format: 'jpg',
+        purpose: 'avatar',
+      }),
+    });
+    assert.equal(regRes.status, 201);
+
+    // Update avatar with verified standardized files schema
     const avatarUpdateRes = await fetch(`${gatewayBaseUrl}/api/core/me/avatar`, {
       method: 'PATCH',
       headers: {
         authorization: `Bearer ${memberAuth.token}`,
         'content-type': 'application/json',
       },
-      body: JSON.stringify({ avatarUrl: mockAvatarUrl }),
+      body: JSON.stringify({
+        files: [
+          {
+            identifier: 'avatar',
+            fileurl: mockAvatarUrl,
+            cloudinaryPublicId: mockPublicId,
+            cloudinaryAssetId: mockAssetId,
+          },
+        ],
+      }),
     });
     assert.equal(avatarUpdateRes.status, 200);
     const avatarUpdateBody = await avatarUpdateRes.json();

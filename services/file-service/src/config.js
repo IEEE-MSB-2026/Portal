@@ -9,6 +9,7 @@ const config = {
   env: process.env.NODE_ENV || 'development',
   port: parsePositiveInt(process.env.PORT, 5080),
   gatewaySharedSecret: process.env.GATEWAY_SHARED_SECRET || 'dev-gateway-secret-change-in-prod',
+  databaseUrl: process.env.DATABASE_URL || 'postgres://postgres:password@localhost:5432/ieee_core',
   
   // Cloudinary credentials
   cloudinary: {

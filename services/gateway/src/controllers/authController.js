@@ -26,8 +26,9 @@ async function login(req, res, next) {
 
 async function register(req, res, next) {
   try {
-    const { email, password, name, role, scopeType, scopeId, committeeId } = req.body || {};
-    const result = await authService.register({ email, password, name, role, scopeType, scopeId, committeeId });
+    const { email, password, name, membershipId, membership_id, role, scopeType, scopeId, committeeId } = req.body || {};
+    const memId = membershipId || membership_id || null;
+    const result = await authService.register({ email, password, name, membershipId: memId, role, scopeType, scopeId, committeeId });
     setRefreshCookie(res, result.refreshToken, result.expiresAt);
     res.status(201).json({
       token: result.token,

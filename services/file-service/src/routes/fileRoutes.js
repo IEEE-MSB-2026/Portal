@@ -14,6 +14,7 @@ router.use(parseAuthIdentity);
 
 router.post('/signature', fileController.getUploadSignature);
 router.post('/upload', upload.single('file'), fileController.uploadFile);
+router.post('/assets', fileController.registerAsset);
 router.get('/config', fileController.getConfig);
 
 module.exports = router;

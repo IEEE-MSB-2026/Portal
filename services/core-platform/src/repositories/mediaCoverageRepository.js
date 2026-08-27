@@ -85,13 +85,13 @@ async function updateCoverageStatus({
     `
       UPDATE media_coverage_requests
       SET
-        status = $2,
+        status = $2::media_coverage_status_type,
         accepted_by_user_ref_id = CASE
-          WHEN $2 = 'accepted' THEN $3
+          WHEN $2::text = 'accepted' THEN $3::uuid
           ELSE accepted_by_user_ref_id
         END,
         linked_task_id = CASE
-          WHEN $2 = 'accepted' THEN COALESCE(linked_task_id, $4::uuid)
+          WHEN $2::text = 'accepted' THEN COALESCE(linked_task_id, $4::uuid)
           ELSE linked_task_id
         END,
         updated_at = NOW()

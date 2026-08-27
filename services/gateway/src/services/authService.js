@@ -44,7 +44,7 @@ async function login({ email, password }) {
   };
 }
 
-async function register({ email, password, name, role = 'member', scopeType, scopeId, committeeId }) {
+async function register({ email, password, name, membershipId = null, role = 'member', scopeType, scopeId, committeeId }) {
   if (!email || !password || !name) {
     const err = new Error('Name, email, and password are required');
     err.status = 400;
@@ -55,6 +55,7 @@ async function register({ email, password, name, role = 'member', scopeType, sco
     email,
     password,
     name,
+    membershipId,
     role,
     scopeType: scopeType || (committeeId ? 'committee' : 'global'),
     scopeId: scopeId || committeeId || 'global',

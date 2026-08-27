@@ -33,6 +33,7 @@ function initPgMemPool() {
       password_hash TEXT NOT NULL,
       name TEXT NOT NULL,
       avatar_url TEXT,
+      membership_id TEXT,
       default_role TEXT NOT NULL DEFAULT 'member',
       default_scope_type TEXT NOT NULL DEFAULT 'global',
       default_scope_id TEXT NOT NULL DEFAULT 'global',
@@ -119,7 +120,7 @@ function initPgMemPool() {
 
 function getPool() {
   if (!pool) {
-    if (process.env.GATEWAY_USE_PGMEM === 'true' || process.env.NODE_ENV === 'test') {
+    if (process.env.GATEWAY_USE_PGMEM === 'true' || (process.env.NODE_ENV === 'test' && process.env.GATEWAY_USE_PGMEM !== 'false')) {
       pool = initPgMemPool();
     } else {
       pool = new Pool({

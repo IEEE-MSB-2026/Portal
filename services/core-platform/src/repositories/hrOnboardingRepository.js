@@ -155,7 +155,7 @@ async function updateOnboardingItemStatus({ itemId, status, actorUserRefId }) {
       SET
         status = $2,
         completed_at = CASE WHEN $3::boolean THEN NOW() ELSE NULL END,
-        completed_by_user_ref_id = CASE WHEN $3::boolean THEN $4 ELSE NULL END,
+        completed_by_user_ref_id = CASE WHEN $3::boolean THEN $4::uuid ELSE NULL END,
         updated_at = NOW()
       WHERE id = $1
       RETURNING

@@ -90,6 +90,82 @@ async function uploadFile(req, res, next) {
   }
 }
 
+async function registerAsset(req, res, next) {
+  try {
+    const {
+      cloudinaryAssetId,
+      cloudinary_asset_id,
+      cloudinaryPublicId,
+      cloudinary_public_id,
+      secureUrl,
+      secure_url,
+      resourceType,
+      resource_type,
+      format,
+      bytes,
+      purpose,
+    } = req.body || {};
+
+    const assetId = cloudinaryAssetId || cloudinary_asset_id;
+    const publicId = cloudinaryPublicId || cloudinary_public_id;
+    const url = secureUrl || secure_url;
+    const resType = resourceType || resource_type || 'image';
+    const cleanPurpose = typeof purpose === 'string' && purpose.trim() ? purpose.trim().toLowerCase() : 'general';
+
+    if (!assetId || !publicId || !url) {
+      return res.status(400).json({
+        error: 'cloudinary_asset_id, cloudinary_public_id, and secure_url are required to register an asset',
+      });
+    }
+
+    const { query } = require('../db/pool');
+    const ownerUserRefId = req.identity?.userRefId || null;
+
+    const result = await query(
+      `INSERT INTO file_assets (
+        owner_user_ref_id,
+        purpose,
+        cloudinary_asset_id,
+        cloudinary_public_id,
+        resource_type,
+        format,
+        secure_url,
+        bytes
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      RETURNING id, owner_user_ref_id, purpose, cloudinary_asset_id, cloudinary_public_id, resource_type, format, secure_url, bytes, created_at`,
+      [
+        ownerUserRefId,
+        cleanPurpose,
+        assetId,
+        publicId,
+        resType,
+        format || null,
+        url,
+        bytes || null,
+      ]
+    );
+
+    const row = result.rows[0];
+    return res.status(201).json({
+      success: true,
+      asset: {
+        id: row.id,
+        ownerUserRefId: row.owner_user_ref_id,
+        purpose: row.purpose,
+        cloudinaryAssetId: row.cloudinary_asset_id,
+        cloudinaryPublicId: row.cloudinary_public_id,
+        resourceType: row.resource_type,
+        format: row.format,
+        secureUrl: row.secure_url,
+        bytes: row.bytes ? Number(row.bytes) : null,
+        createdAt: row.created_at,
+      },
+    });
+  } catch (err) {
+    return next(err);
+  }
+}
+
 function getServiceConfig(req, res) {
   return res.status(200).json({
     service: 'portal-file-service',
@@ -112,4 +188,5 @@ module.exports = {
   getConfig: getServiceConfig,
   getUploadSignature,
   uploadFile,
+  registerAsset,
 };
