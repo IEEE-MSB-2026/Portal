@@ -328,13 +328,13 @@ test('hr accept: success path assigns IAM role once and creates onboarding check
           assert.equal(outboundIam.url, '/admin/roles/assign');
           assert.equal(outboundIam.headers['x-service-token'], 'iam-service-token');
           assert.equal(outboundIam.body.schemaVersion, '1.0');
-          assert.equal(outboundIam.body.userId, 'member-ai-1');
+          assert.equal(outboundIam.body.userId, IDS.users.memberAi);
           assert.equal(outboundIam.body.role, 'member');
           assert.equal(outboundIam.body.scopeType, 'committee');
           assert.equal(outboundIam.body.scopeId, IDS.committees.hr);
           assert.equal(
             outboundIam.body.idempotencyKey,
-            `core-hr-accept:${applicationId}:member-ai-1:${IDS.committees.hr}:member`
+            `core-hr-accept:${applicationId}:${IDS.users.memberAi}:${IDS.committees.hr}:member`
           );
 
           const onboardingCount = await query(

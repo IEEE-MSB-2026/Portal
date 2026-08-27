@@ -165,7 +165,43 @@ async function logout(rawRefreshToken) {
   }
 }
 
+const { hashPassword } = require('../utils/passwordUtils');
+
+async function changePassword({ userId, currentPassword, newPassword }) {
+  if (!currentPassword || !newPassword) {
+    const err = new Error('Current password and new password are required');
+    err.status = 400;
+    throw err;
+  }
+
+  if (newPassword.length < 8) {
+    const err = new Error('New password must be at least 8 characters');
+    err.status = 400;
+    throw err;
+  }
+
+  const user = await userRepository.findById(userId);
+  if (!user) {
+    const err = new Error('User not found');
+    err.status = 404;
+    throw err;
+  }
+
+  const isValid = await verifyPassword(currentPassword, user.passwordHash);
+  if (!isValid) {
+    const err = new Error('Current password is incorrect');
+    err.status = 401;
+    throw err;
+  }
+
+  const newHash = await hashPassword(newPassword);
+  await userRepository.updatePassword(userId, newHash);
+
+  return { message: 'Password changed successfully' };
+}
+
 module.exports = {
+  changePassword,
   login,
   logout,
   refreshTokens,

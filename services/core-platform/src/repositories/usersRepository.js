@@ -1,45 +1,110 @@
 const { randomUUID } = require('crypto');
 const { query } = require('../db/pool');
 
-async function ensureUserRef({ externalUserId, email }) {
-  const id = randomUUID();
-  const result = await query(
-    `
-      INSERT INTO users_ref (id, external_user_id, email)
-      VALUES ($1, $2, $3)
-      ON CONFLICT (external_user_id)
-      DO UPDATE SET email = EXCLUDED.email
-      RETURNING id, external_user_id, email, avatar_url, membership_id
-    `,
-    [id, externalUserId, email]
-  );
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+async function findById(id) {
+  if (!id || typeof id !== 'string' || !UUID_REGEX.test(id)) return null;
+  const result = await query(
+    'SELECT id, email, name, avatar_url, membership_id, default_role, default_scope_type, default_scope_id, created_at FROM users WHERE id = $1',
+    [id]
+  );
+  if (!result.rows[0]) return null;
+  const row = result.rows[0];
   return {
-    id: result.rows[0].id,
-    externalUserId: result.rows[0].external_user_id,
-    email: result.rows[0].email,
-    avatarUrl: result.rows[0].avatar_url || null,
-    membershipId: result.rows[0].membership_id || null,
+    id: row.id,
+    userId: row.id,
+    externalUserId: row.id,
+    email: row.email,
+    name: row.name,
+    avatarUrl: row.avatar_url || null,
+    membershipId: row.membership_id || null,
+    defaultRole: row.default_role,
+    defaultScopeType: row.default_scope_type,
+    defaultScopeId: row.default_scope_id,
+    createdAt: row.created_at || null,
+  };
+}
+
+async function findByEmail(email) {
+  if (!email || typeof email !== 'string') return null;
+  const result = await query(
+    'SELECT id, email, name, avatar_url, membership_id, default_role, default_scope_type, default_scope_id, created_at FROM users WHERE email = $1',
+    [email.trim().toLowerCase()]
+  );
+  if (!result.rows[0]) return null;
+  const row = result.rows[0];
+  return {
+    id: row.id,
+    userId: row.id,
+    externalUserId: row.id,
+    email: row.email,
+    name: row.name,
+    avatarUrl: row.avatar_url || null,
+    membershipId: row.membership_id || null,
+    defaultRole: row.default_role,
+    defaultScopeType: row.default_scope_type,
+    defaultScopeId: row.default_scope_id,
+    createdAt: row.created_at || null,
   };
 }
 
 async function findByExternalUserId(externalUserId) {
-  const result = await query(
-    'SELECT id, external_user_id, email, avatar_url, membership_id FROM users_ref WHERE external_user_id = $1',
-    [externalUserId]
-  );
+  if (!externalUserId) return null;
+  if (typeof externalUserId === 'string') {
+    if (UUID_REGEX.test(externalUserId)) {
+      return findById(externalUserId);
+    }
+    if (externalUserId.includes('@')) {
+      return findByEmail(externalUserId);
+    }
+    // Handle persona handles like 'member-ai-1' -> 'member.ai@ieee.local' or 'admin-1' -> 'admin@ieee.local'
+    const cleanHandle = externalUserId.replace(/-\d+$/, '').replace(/-/g, '.');
+    const candidateEmail = `${cleanHandle}@ieee.local`;
+    const byCandidate = await findByEmail(candidateEmail);
+    if (byCandidate) return byCandidate;
+  }
+  return null;
+}
 
-  if (!result.rows[0]) return null;
+async function ensureUserRef({ externalUserId, email, name }) {
+  let user = null;
+  if (externalUserId) {
+    user = await findByExternalUserId(externalUserId);
+  }
+  if (!user && email) {
+    user = await findByEmail(email);
+  }
+  if (user) return user;
+
+  const newId = (externalUserId && UUID_REGEX.test(externalUserId)) ? externalUserId : randomUUID();
+  const userName = name || (email ? email.split('@')[0] : 'User');
+  const dummyHash = '48b529d756e26809a43e6d9885e1c2e7:9f91ed2edf9e031e77311242b9bce3ab0baec08decc7a6b1b708c78f110cbfe33d1f13e61331e23fcefa3cb48ab93ce15736d37c8107b46e1555c1ccf2b5f683';
+  const normEmail = email ? email.trim().toLowerCase() : `${newId}@ieee.local`;
+
+  const insertRes = await query(
+    `INSERT INTO users (id, email, password_hash, name, default_role, default_scope_type, default_scope_id)
+     VALUES ($1, $2, $3, $4, 'member', 'global', 'global')
+     ON CONFLICT (email) DO UPDATE SET name = EXCLUDED.name
+     RETURNING id, email, name, avatar_url, membership_id, default_role, default_scope_type, default_scope_id`,
+    [newId, normEmail, dummyHash, userName]
+  );
+  const row = insertRes.rows[0];
   return {
-    id: result.rows[0].id,
-    externalUserId: result.rows[0].external_user_id,
-    email: result.rows[0].email,
-    avatarUrl: result.rows[0].avatar_url || null,
-    membershipId: result.rows[0].membership_id || null,
+    id: row.id,
+    userId: row.id,
+    externalUserId: row.id,
+    email: row.email,
+    name: row.name,
+    avatarUrl: row.avatar_url || null,
+    membershipId: row.membership_id || null,
+    defaultRole: row.default_role,
+    defaultScopeType: row.default_scope_type,
+    defaultScopeId: row.default_scope_id,
   };
 }
 
-async function updateUserAvatar(userRefId, avatarData) {
+async function updateUserAvatar(userId, avatarData) {
   let url = avatarData;
   let publicId = null;
   let assetId = null;
@@ -52,40 +117,25 @@ async function updateUserAvatar(userRefId, avatarData) {
 
   const result = await query(
     `
-      UPDATE users_ref
+      UPDATE users
       SET avatar_url = $2,
           cloudinary_public_id = COALESCE($3, cloudinary_public_id),
-          cloudinary_asset_id = COALESCE($4, cloudinary_asset_id)
+          cloudinary_asset_id = COALESCE($4, cloudinary_asset_id),
+          updated_at = NOW()
       WHERE id = $1
-      RETURNING id, external_user_id, email, avatar_url, membership_id, cloudinary_public_id, cloudinary_asset_id
+      RETURNING id, email, name, avatar_url, membership_id, cloudinary_public_id, cloudinary_asset_id
     `,
-    [userRefId, url, publicId, assetId]
+    [userId, url, publicId, assetId]
   );
 
   if (!result.rows[0]) return null;
-
   const row = result.rows[0];
-
-  // Sync to auth_users if external_user_id exists
-  if (row.external_user_id) {
-    try {
-      await query(
-        `UPDATE auth_users
-         SET avatar_url = $2,
-             cloudinary_public_id = COALESCE($3, cloudinary_public_id),
-             cloudinary_asset_id = COALESCE($4, cloudinary_asset_id)
-         WHERE id = $1`,
-        [row.external_user_id, url, publicId, assetId]
-      );
-    } catch {
-      // Ignore if auth_users is partitioned or in separate tenant
-    }
-  }
-
   return {
     id: row.id,
-    externalUserId: row.external_user_id,
+    userId: row.id,
+    externalUserId: row.id,
     email: row.email,
+    name: row.name,
     avatarUrl: row.avatar_url || null,
     membershipId: row.membership_id || null,
     cloudinaryPublicId: row.cloudinary_public_id || null,
@@ -93,46 +143,31 @@ async function updateUserAvatar(userRefId, avatarData) {
   };
 }
 
-async function updateUserProfile(userRefId, { membershipId, name }) {
+async function updateUserProfile(userId, { membershipId, name }) {
   const cleanMemId = typeof membershipId === 'string' && membershipId.trim() ? membershipId.trim() : null;
 
   try {
     const result = await query(
       `
-        UPDATE users_ref
-        SET membership_id = $2
+        UPDATE users
+        SET membership_id = COALESCE($2, membership_id),
+            name = COALESCE($3, name),
+            updated_at = NOW()
         WHERE id = $1
-        RETURNING id, external_user_id, email, avatar_url, membership_id
+        RETURNING id, email, name, avatar_url, membership_id
       `,
-      [userRefId, cleanMemId]
+      [userId, cleanMemId, name || null]
     );
 
     if (!result.rows[0]) return null;
     const row = result.rows[0];
 
-    // Sync to auth_users if external_user_id exists
-    if (row.external_user_id) {
-      try {
-        await query(
-          `UPDATE auth_users
-           SET membership_id = $2,
-               name = COALESCE($3, name)
-           WHERE id = $1`,
-          [row.external_user_id, cleanMemId, name || null]
-        );
-      } catch (err) {
-        if (err.code === '23505') {
-          const conflictErr = new Error('An account with this IEEE Membership ID already exists');
-          conflictErr.status = 409;
-          throw conflictErr;
-        }
-      }
-    }
-
     return {
       id: row.id,
-      externalUserId: row.external_user_id,
+      userId: row.id,
+      externalUserId: row.id,
       email: row.email,
+      name: row.name,
       avatarUrl: row.avatar_url || null,
       membershipId: row.membership_id || null,
     };
@@ -148,8 +183,9 @@ async function updateUserProfile(userRefId, { membershipId, name }) {
 
 module.exports = {
   ensureUserRef,
+  findByEmail,
   findByExternalUserId,
+  findById,
   updateUserAvatar,
   updateUserProfile,
 };
-

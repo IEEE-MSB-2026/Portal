@@ -3,34 +3,37 @@ const { getPool, query } = require('../db/pool');
 const hrOnboardingRepository = require('./hrOnboardingRepository');
 
 function mapApplicationColumns(prefix = null) {
-  const qualifier = prefix ? `${prefix}.` : '';
+  const q = prefix ? `${prefix}.` : '';
   return `
-    ${qualifier}id,
-    ${qualifier}campaign_id,
-    ${qualifier}applicant_user_ref_id,
-    ${qualifier}answers,
-    ${qualifier}current_stage,
-    ${qualifier}submitted_at,
-    ${qualifier}created_at,
-    ${qualifier}updated_at
+    ${q}id,
+    ${q}campaign_id,
+    ${q}applicant_user_id,
+    ${q}applicant_user_id AS applicant_user_ref_id,
+    ${q}answers,
+    ${q}current_stage,
+    ${q}submitted_at,
+    ${q}created_at,
+    ${q}updated_at
   `;
 }
 
-async function createApplication({ campaignId, applicantUserRefId, answers }) {
+async function createApplication({ campaignId, applicantUserId, applicantUserRefId, answers }) {
   const id = randomUUID();
+  const applicantId = applicantUserId || applicantUserRefId;
+
   const result = await query(
     `
       INSERT INTO hr_applications (
         id,
         campaign_id,
-        applicant_user_ref_id,
+        applicant_user_id,
         answers
       )
       VALUES ($1, $2, $3, $4::jsonb)
       RETURNING
         ${mapApplicationColumns()}
     `,
-    [id, campaignId, applicantUserRefId, JSON.stringify(answers || {})]
+    [id, campaignId, applicantId, JSON.stringify(answers || {})]
   );
 
   return result.rows[0];
@@ -43,11 +46,14 @@ async function getApplicationById(applicationId) {
         ${mapApplicationColumns('a')},
         c.committee_id,
         c.title AS campaign_title,
-        u.external_user_id AS applicant_external_user_id,
+        cc.name AS committee_name,
+        u.id AS applicant_external_user_id,
+        u.name AS applicant_name,
         u.email AS applicant_email
       FROM hr_applications a
       JOIN hr_campaigns c ON c.id = a.campaign_id
-      JOIN users_ref u ON u.id = a.applicant_user_ref_id
+      JOIN committees cc ON cc.id = c.committee_id
+      JOIN users u ON u.id = a.applicant_user_id
       WHERE a.id = $1
     `,
     [applicationId]
@@ -60,7 +66,7 @@ async function updateApplicationStage(applicationId, stage) {
   const result = await query(
     `
       UPDATE hr_applications
-      SET current_stage = $2, updated_at = NOW()
+      SET current_stage = $2::hr_application_stage_type, updated_at = NOW()
       WHERE id = $1
       RETURNING
         ${mapApplicationColumns()}
@@ -92,11 +98,14 @@ async function listApplications({ committeeId, campaignId, limit = 50 }) {
         ${mapApplicationColumns('a')},
         c.committee_id,
         c.title AS campaign_title,
-        u.external_user_id AS applicant_external_user_id,
+        cc.name AS committee_name,
+        u.id AS applicant_external_user_id,
+        u.name AS applicant_name,
         u.email AS applicant_email
       FROM hr_applications a
       JOIN hr_campaigns c ON c.id = a.campaign_id
-      JOIN users_ref u ON u.id = a.applicant_user_ref_id
+      JOIN committees cc ON cc.id = c.committee_id
+      JOIN users u ON u.id = a.applicant_user_id
       ${whereClause}
       ORDER BY a.submitted_at DESC, a.id DESC
       LIMIT $1
@@ -109,10 +118,12 @@ async function listApplications({ committeeId, campaignId, limit = 50 }) {
 
 async function acceptApplicationWithChecklist({
   applicationId,
+  actorUserId,
   actorUserRefId,
   notes,
   checklistItems,
 }) {
+  const actorId = actorUserId || actorUserRefId;
   const pool = getPool();
   const client = await pool.connect();
 
@@ -126,12 +137,13 @@ async function acceptApplicationWithChecklist({
           c.committee_id,
           c.title AS campaign_title,
           cc.name AS committee_name,
-          u.external_user_id AS applicant_external_user_id,
+          u.id AS applicant_external_user_id,
+          u.name AS applicant_name,
           u.email AS applicant_email
         FROM hr_applications a
         JOIN hr_campaigns c ON c.id = a.campaign_id
         JOIN committees cc ON cc.id = c.committee_id
-        JOIN users_ref u ON u.id = a.applicant_user_ref_id
+        JOIN users u ON u.id = a.applicant_user_id
         WHERE a.id = $1
         FOR UPDATE
       `,
@@ -175,7 +187,7 @@ async function acceptApplicationWithChecklist({
           to_stage,
           score,
           notes,
-          actor_user_ref_id
+          actor_user_id
         )
         VALUES ($1, $2, $3, $4, $5, $6, $7)
       `,
@@ -186,15 +198,15 @@ async function acceptApplicationWithChecklist({
         'accepted',
         null,
         notes || null,
-        actorUserRefId,
+        actorId,
       ]
     );
 
     const createdChecklistItems = await hrOnboardingRepository.createChecklistItems({
       applicationId,
       committeeId: current.committee_id,
-      assigneeUserRefId: current.applicant_user_ref_id,
-      createdByUserRefId: actorUserRefId,
+      assigneeUserId: current.applicant_user_id,
+      createdByUserRefId: actorId,
       checklistItems,
       client,
     });

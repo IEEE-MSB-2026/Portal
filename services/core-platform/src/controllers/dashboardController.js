@@ -23,12 +23,13 @@ async function getMyDashboard(req, res, next) {
     const limit = parseLimit(req.query.limit, 20, 100);
     const cursor = decodeCursor(req.query.cursor);
 
-    const [userRef, committees, assignedTasks, recentActivity, recentAnnouncements] = await Promise.all([
+    const [userRef, committees, assignedTasks, recentActivity, recentAnnouncements, taskStats] = await Promise.all([
       usersRepository.findByExternalUserId(req.identity.externalUserId),
       committeesRepository.listCommitteesForUser(req.identity.userRefId),
       tasksRepository.listAssignedTasks(req.identity.userRefId, { limit, cursor }),
       taskActivityRepository.listRecentActivityForUserCommittees(req.identity.userRefId, { limit: 20 }),
       prAnnouncementsRepository.listAnnouncements({ limit: 10 }),
+      tasksRepository.getTaskStatusCountsForUser(req.identity.userRefId),
     ]);
 
     return res.status(200).json({
@@ -40,9 +41,11 @@ async function getMyDashboard(req, res, next) {
         scopeId: req.identity.scopeId,
         avatarUrl: userRef?.avatarUrl || null,
         membershipId: userRef?.membershipId || null,
+        createdAt: userRef?.createdAt || null,
       },
       committees,
       tasks: assignedTasks,
+      taskStats: taskStats || { total: 0, todo: 0, inProgress: 0, done: 0 },
       recentActivity,
       recentAnnouncements: recentAnnouncements.map((a) => ({
         id: a.id,

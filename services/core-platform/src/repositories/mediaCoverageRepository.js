@@ -10,8 +10,10 @@ function mapCoverageColumns(prefix = 'r') {
     ${prefix}.description,
     ${prefix}.event_at,
     ${prefix}.status,
-    ${prefix}.requested_by_user_ref_id,
-    ${prefix}.accepted_by_user_ref_id,
+    ${prefix}.requested_by_user_id,
+    ${prefix}.requested_by_user_id AS requested_by_user_ref_id,
+    ${prefix}.accepted_by_user_id,
+    ${prefix}.accepted_by_user_id AS accepted_by_user_ref_id,
     ${prefix}.linked_task_id,
     ${prefix}.created_at,
     ${prefix}.updated_at
@@ -23,8 +25,10 @@ function mapCoverageSelect(prefix = 'r') {
     ${mapCoverageColumns(prefix)},
     origin.name AS committee_name,
     media.name AS media_committee_name,
-    requester.external_user_id AS requested_by_external_user_id,
-    accepter.external_user_id AS accepted_by_external_user_id
+    requester.id AS requested_by_external_user_id,
+    requester.name AS requester_name,
+    accepter.id AS accepted_by_external_user_id,
+    accepter.name AS accepter_name
   `;
 }
 
@@ -36,8 +40,8 @@ async function getCoverageRequestById(requestId) {
       FROM media_coverage_requests r
       JOIN committees origin ON origin.id = r.committee_id
       JOIN committees media ON media.id = r.media_committee_id
-      JOIN users_ref requester ON requester.id = r.requested_by_user_ref_id
-      LEFT JOIN users_ref accepter ON accepter.id = r.accepted_by_user_ref_id
+      JOIN users requester ON requester.id = r.requested_by_user_id
+      LEFT JOIN users accepter ON accepter.id = r.accepted_by_user_id
       WHERE r.id = $1
       LIMIT 1
     `,
@@ -52,9 +56,13 @@ async function createCoverageRequest({
   title,
   description,
   eventAt,
+  requestedByUserId,
   requestedByUserRefId,
 }) {
   const requestId = randomUUID();
+  const requesterId = requestedByUserId || requestedByUserRefId;
+  const targetDate = eventAt ? new Date(eventAt) : new Date();
+
   await query(
     `
       INSERT INTO media_coverage_requests (
@@ -65,11 +73,11 @@ async function createCoverageRequest({
         description,
         event_at,
         status,
-        requested_by_user_ref_id
+        requested_by_user_id
       )
       VALUES ($1, $2, $3, $4, $5, $6, 'requested', $7)
     `,
-    [requestId, committeeId, mediaCommitteeId, title, description || null, eventAt || null, requestedByUserRefId]
+    [requestId, committeeId, mediaCommitteeId, title.trim(), description ? description.trim() : null, targetDate, requesterId]
   );
 
   return getCoverageRequestById(requestId);
@@ -78,17 +86,19 @@ async function createCoverageRequest({
 async function updateCoverageStatus({
   requestId,
   status,
+  actorUserId,
   actorUserRefId,
   linkedTaskId = null,
 }) {
+  const actorId = actorUserId || actorUserRefId;
   const result = await query(
     `
       UPDATE media_coverage_requests
       SET
         status = $2::media_coverage_status_type,
-        accepted_by_user_ref_id = CASE
+        accepted_by_user_id = CASE
           WHEN $2::text = 'accepted' THEN $3::uuid
-          ELSE accepted_by_user_ref_id
+          ELSE accepted_by_user_id
         END,
         linked_task_id = CASE
           WHEN $2::text = 'accepted' THEN COALESCE(linked_task_id, $4::uuid)
@@ -98,7 +108,7 @@ async function updateCoverageStatus({
       WHERE id = $1
       RETURNING id
     `,
-    [requestId, status, actorUserRefId, linkedTaskId]
+    [requestId, status, actorId, linkedTaskId]
   );
 
   if (!result.rows[0]) return null;
@@ -108,18 +118,20 @@ async function updateCoverageStatus({
 async function createCoverageActivity({
   coverageRequestId,
   action,
+  actorUserId,
   actorUserRefId,
   fromStatus,
   toStatus,
   notes,
 }) {
+  const actorId = actorUserId || actorUserRefId;
   await query(
     `
       INSERT INTO media_coverage_activity_log (
         id,
         coverage_request_id,
         action,
-        actor_user_ref_id,
+        actor_user_id,
         from_status,
         to_status,
         notes
@@ -130,12 +142,13 @@ async function createCoverageActivity({
       randomUUID(),
       coverageRequestId,
       action,
-      actorUserRefId,
+      actorId,
       fromStatus || null,
       toStatus || null,
       notes || null,
     ]
   );
+  return true;
 }
 
 module.exports = {

@@ -1,7 +1,7 @@
 const { randomUUID } = require('crypto');
 const { query } = require('../db/pool');
 
-const ALLOWED_CATEGORIES = new Set(['General', 'Event', 'Recruitment', 'Technical', 'Competition']);
+const ALLOWED_CATEGORIES = new Set(['General', 'Event', 'Recruitment', 'Technical', 'Opportunity']);
 
 function normalizeCategory(raw) {
   if (!raw || typeof raw !== 'string') return 'General';
@@ -20,43 +20,29 @@ function mapAnnouncementColumns(prefix = 'a') {
     ${prefix}.category,
     ${prefix}.image_url,
     ${prefix}.is_pinned,
-    ${prefix}.author_name,
     ${prefix}.visibility,
-    ${prefix}.created_by_user_ref_id,
-    ${prefix}.updated_by_user_ref_id,
-    ${prefix}.deleted_by_user_ref_id,
+    ${prefix}.author_user_id,
+    ${prefix}.author_user_id AS created_by_user_ref_id,
     ${prefix}.created_at,
     ${prefix}.updated_at,
-    ${prefix}.deleted_at
-  `;
-}
-
-function mapAnnouncementSelect(prefix = 'a') {
-  return `
-    ${mapAnnouncementColumns(prefix)},
-    creator.external_user_id AS created_by_external_user_id,
-    updater.external_user_id AS updated_by_external_user_id,
-    deleter.external_user_id AS deleted_by_external_user_id
+    ${prefix}.deleted_at,
+    creator.name AS author_name,
+    creator.id AS created_by_external_user_id
   `;
 }
 
 async function getAnnouncementById(announcementId, { includeDeleted = false } = {}) {
-  const values = [announcementId];
   const deletedClause = includeDeleted ? '' : 'AND a.deleted_at IS NULL';
-
   const result = await query(
     `
       SELECT
-        ${mapAnnouncementSelect('a')}
+        ${mapAnnouncementColumns('a')}
       FROM pr_announcements a
-      JOIN users_ref creator ON creator.id = a.created_by_user_ref_id
-      JOIN users_ref updater ON updater.id = a.updated_by_user_ref_id
-      LEFT JOIN users_ref deleter ON deleter.id = a.deleted_by_user_ref_id
-      WHERE a.id = $1
-      ${deletedClause}
+      JOIN users creator ON creator.id = a.author_user_id
+      WHERE a.id = $1 ${deletedClause}
       LIMIT 1
     `,
-    values
+    [announcementId]
   );
 
   return result.rows[0] || null;
@@ -68,15 +54,14 @@ async function createAnnouncement({
   category = 'General',
   imageUrl = null,
   isPinned = false,
-  authorName = 'Branch Executive Board',
   visibility = 'public',
+  authorUserId,
+  actorUserId,
   actorUserRefId,
 }) {
   const announcementId = randomUUID();
   const normalizedCategory = normalizeCategory(category);
-  const normalizedAuthor = typeof authorName === 'string' && authorName.trim()
-    ? authorName.trim()
-    : 'Branch Executive Board';
+  const targetAuthorId = authorUserId || actorUserId || actorUserRefId;
 
   await query(
     `
@@ -87,12 +72,11 @@ async function createAnnouncement({
         category,
         image_url,
         is_pinned,
-        author_name,
         visibility,
-        created_by_user_ref_id,
-        updated_by_user_ref_id
+        author_user_id,
+        created_by_user_id
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8)
     `,
     [
       announcementId,
@@ -101,9 +85,8 @@ async function createAnnouncement({
       normalizedCategory,
       imageUrl || null,
       Boolean(isPinned),
-      normalizedAuthor,
       visibility,
-      actorUserRefId,
+      targetAuthorId,
     ]
   );
 
@@ -117,9 +100,7 @@ async function updateAnnouncement({
   category,
   imageUrl = null,
   isPinned,
-  authorName,
   visibility,
-  actorUserRefId,
 }) {
   const updates = [];
   const values = [announcementId];
@@ -149,18 +130,11 @@ async function updateAnnouncement({
     updates.push(`is_pinned = $${values.length}`);
   }
 
-  if (authorName !== undefined && authorName !== null) {
-    values.push(authorName.trim());
-    updates.push(`author_name = $${values.length}`);
-  }
-
   if (visibility !== undefined && visibility !== null) {
     values.push(visibility);
     updates.push(`visibility = $${values.length}`);
   }
 
-  values.push(actorUserRefId);
-  updates.push(`updated_by_user_ref_id = $${values.length}`);
   updates.push(`updated_at = NOW()`);
 
   const result = await query(
@@ -177,19 +151,15 @@ async function updateAnnouncement({
   return getAnnouncementById(announcementId, { includeDeleted: true });
 }
 
-async function softDeleteAnnouncement({ announcementId, actorUserRefId }) {
+async function softDeleteAnnouncement({ announcementId, actorUserId, actorUserRefId }) {
   const result = await query(
     `
       UPDATE pr_announcements
-      SET
-        deleted_at = NOW(),
-        deleted_by_user_ref_id = $2,
-        updated_by_user_ref_id = $2,
-        updated_at = NOW()
+      SET deleted_at = NOW(), updated_at = NOW()
       WHERE id = $1 AND deleted_at IS NULL
       RETURNING id
     `,
-    [announcementId, actorUserRefId]
+    [announcementId]
   );
 
   if (!result.rows[0]) return null;
@@ -203,7 +173,7 @@ async function listAnnouncements({
   includeDeleted = false,
   limit = 50,
   offset = 0,
-}) {
+} = {}) {
   const values = [limit, offset];
   const where = [];
 
@@ -229,11 +199,9 @@ async function listAnnouncements({
   const whereClause = where.length ? `WHERE ${where.join(' AND ')}` : '';
   const queryText = `
     SELECT
-      ${mapAnnouncementSelect('a')}
+      ${mapAnnouncementColumns('a')}
     FROM pr_announcements a
-    JOIN users_ref creator ON creator.id = a.created_by_user_ref_id
-    JOIN users_ref updater ON updater.id = a.updated_by_user_ref_id
-    LEFT JOIN users_ref deleter ON deleter.id = a.deleted_by_user_ref_id
+    JOIN users creator ON creator.id = a.author_user_id
     ${whereClause}
     ORDER BY a.is_pinned DESC, a.created_at DESC
     LIMIT $1 OFFSET $2
@@ -246,23 +214,26 @@ async function listAnnouncements({
 async function createActivityLog({
   announcementId,
   action,
+  actorUserId,
   actorUserRefId,
   metadata = {},
 }) {
   const logId = randomUUID();
+  const actorId = actorUserId || actorUserRefId;
   await query(
     `
       INSERT INTO pr_announcement_activity_log (
         id,
         announcement_id,
         action,
-        actor_user_ref_id,
+        actor_user_id,
         metadata
       )
       VALUES ($1, $2, $3, $4, $5::jsonb)
     `,
-    [logId, announcementId, action, actorUserRefId, JSON.stringify(metadata)]
+    [logId, announcementId, action, actorId, JSON.stringify(metadata)]
   );
+  return true;
 }
 
 module.exports = {

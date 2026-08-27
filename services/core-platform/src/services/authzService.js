@@ -46,7 +46,16 @@ function canUpdateTaskStatus({ identity, membershipRole, task }) {
     return { allowed: true, mode: 'any' };
   }
 
-  if (task.assignee_user_ref_id === identity.userRefId) {
+  const taskAssigneeId = task.assignee_user_id || task.assignee_user_ref_id || task.assigneeUserId;
+  const currentUserId = identity.userId || identity.userRefId || identity.externalUserId;
+
+  if (
+    taskAssigneeId &&
+    (taskAssigneeId === currentUserId ||
+     taskAssigneeId === identity.userRefId ||
+     taskAssigneeId === identity.userRef?.id ||
+     taskAssigneeId === identity.userRef?.externalUserId)
+  ) {
     return { allowed: true, mode: 'own' };
   }
 

@@ -7,11 +7,14 @@ async function createCampaign({
   description,
   opensAt,
   closesAt,
-  status,
-  formSchema,
+  status = 'draft',
+  formSchema = {},
+  createdByUserId,
   createdByUserRefId,
 }) {
   const id = randomUUID();
+  const creatorId = createdByUserId || createdByUserRefId;
+
   const result = await query(
     `
       INSERT INTO hr_campaigns (
@@ -23,7 +26,7 @@ async function createCampaign({
         closes_at,
         status,
         form_schema,
-        created_by_user_ref_id
+        created_by_user_id
       )
       VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9)
       RETURNING
@@ -35,20 +38,21 @@ async function createCampaign({
         closes_at,
         status,
         form_schema,
-        created_by_user_ref_id,
+        created_by_user_id,
+        created_by_user_id AS created_by_user_ref_id,
         created_at,
         updated_at
     `,
     [
       id,
       committeeId,
-      title,
-      description || null,
+      title.trim(),
+      description ? description.trim() : null,
       opensAt,
       closesAt,
       status,
       JSON.stringify(formSchema || {}),
-      createdByUserRefId,
+      creatorId,
     ]
   );
 
@@ -67,7 +71,8 @@ async function getCampaignById(campaignId) {
         closes_at,
         status,
         form_schema,
-        created_by_user_ref_id,
+        created_by_user_id,
+        created_by_user_id AS created_by_user_ref_id,
         created_at,
         updated_at
       FROM hr_campaigns
@@ -94,7 +99,8 @@ async function updateCampaignStatus(campaignId, status) {
         closes_at,
         status,
         form_schema,
-        created_by_user_ref_id,
+        created_by_user_id,
+        created_by_user_id AS created_by_user_ref_id,
         created_at,
         updated_at
     `,

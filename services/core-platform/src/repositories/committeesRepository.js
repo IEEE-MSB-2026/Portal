@@ -16,16 +16,16 @@ async function getCommitteeBySlug(slug) {
   return result.rows[0] || null;
 }
 
-async function listCommitteesForUser(userRefId) {
+async function listCommitteesForUser(userId) {
   const result = await query(
     `
       SELECT c.id, c.slug, c.name, c.is_active, cm.role_in_committee
       FROM committee_memberships cm
       JOIN committees c ON c.id = cm.committee_id
-      WHERE cm.user_ref_id = $1
+      WHERE cm.user_id = $1
       ORDER BY c.name ASC
     `,
-    [userRefId]
+    [userId]
   );
 
   return result.rows.map((row) => ({
@@ -37,33 +37,33 @@ async function listCommitteesForUser(userRefId) {
   }));
 }
 
-async function getMembershipRole(userRefId, committeeId) {
+async function getMembershipRole(userId, committeeId) {
   const result = await query(
     `
       SELECT role_in_committee
       FROM committee_memberships
-      WHERE user_ref_id = $1 AND committee_id = $2
+      WHERE user_id = $1 AND committee_id = $2
     `,
-    [userRefId, committeeId]
+    [userId, committeeId]
   );
 
   return result.rows[0]?.role_in_committee || null;
 }
 
-async function isMemberOfCommittee(userRefId, committeeId) {
-  const role = await getMembershipRole(userRefId, committeeId);
+async function isMemberOfCommittee(userId, committeeId) {
+  const role = await getMembershipRole(userId, committeeId);
   return Boolean(role);
 }
 
-async function listCommitteeIdsForUserRole(userRefId, roleInCommittee) {
+async function listCommitteeIdsForUserRole(userId, roleInCommittee) {
   const result = await query(
     `
       SELECT committee_id
       FROM committee_memberships
-      WHERE user_ref_id = $1 AND role_in_committee = $2
+      WHERE user_id = $1 AND role_in_committee = $2
       ORDER BY committee_id ASC
     `,
-    [userRefId, roleInCommittee]
+    [userId, roleInCommittee]
   );
 
   return result.rows.map((row) => row.committee_id);

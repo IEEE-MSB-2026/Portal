@@ -25,7 +25,7 @@ async function findByEmail(email) {
 
   const userRes = await pool.query(
     `SELECT id, email, password_hash, name, avatar_url, membership_id, default_role, default_scope_type, default_scope_id 
-     FROM auth_users 
+     FROM users 
      WHERE email = $1 AND is_active = TRUE 
      LIMIT 1`,
     [normalizedEmail]
@@ -63,6 +63,8 @@ async function findByEmail(email) {
   };
 }
 
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 async function findById(id) {
   if (!id) return null;
 
@@ -71,14 +73,29 @@ async function findById(id) {
     throw new Error('Database connection pool is not available');
   }
 
-  const userRes = await pool.query(
-    `SELECT id, email, password_hash, name, avatar_url, membership_id, default_role, default_scope_type, default_scope_id 
-     FROM auth_users 
-     WHERE id = $1 AND is_active = TRUE 
-     LIMIT 1`,
-    [id]
-  );
-  const user = userRes.rows[0];
+  let user = null;
+  if (UUID_REGEX.test(id)) {
+    const userRes = await pool.query(
+      `SELECT id, email, password_hash, name, avatar_url, membership_id, default_role, default_scope_type, default_scope_id 
+       FROM users 
+       WHERE id = $1 AND is_active = TRUE 
+       LIMIT 1`,
+      [id]
+    );
+    user = userRes.rows[0];
+  } else {
+    const cleanHandle = String(id).replace(/-[0-9]+$/, '').replace(/-/g, '.');
+    const candidateEmail = `${cleanHandle}@ieee.local`;
+    const userRes = await pool.query(
+      `SELECT id, email, password_hash, name, avatar_url, membership_id, default_role, default_scope_type, default_scope_id 
+       FROM users 
+       WHERE (email = $1 OR email = $2) AND is_active = TRUE 
+       LIMIT 1`,
+      [id, candidateEmail]
+    );
+    user = userRes.rows[0];
+  }
+
   if (!user) return null;
 
   const rolesRes = await pool.query(
@@ -142,7 +159,7 @@ async function create({ email, password, name, membershipId = null, role = 'memb
   try {
     if (cleanMemId) {
       const existingMem = await client.query(
-        'SELECT 1 FROM auth_users WHERE membership_id = $1 AND is_active = TRUE LIMIT 1',
+        'SELECT 1 FROM users WHERE membership_id = $1 AND is_active = TRUE LIMIT 1',
         [cleanMemId]
       );
       if (existingMem.rows.length > 0) {
@@ -155,7 +172,7 @@ async function create({ email, password, name, membershipId = null, role = 'memb
     await client.query('BEGIN');
 
     await client.query(
-      `INSERT INTO auth_users (id, email, password_hash, name, membership_id, default_role, default_scope_type, default_scope_id)
+      `INSERT INTO users (id, email, password_hash, name, membership_id, default_role, default_scope_type, default_scope_id)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
       [userId, normalizedEmail, passwordHash, name, cleanMemId, role, scopeType, scopeId]
     );
@@ -171,7 +188,7 @@ async function create({ email, password, name, membershipId = null, role = 'memb
     await client.query('ROLLBACK').catch(() => {});
     if (err.code === '23505') {
       const detail = String(err.detail || err.message || '');
-      if (detail.includes('membership_id') || err.constraint === 'idx_auth_users_membership_id') {
+      if (detail.includes('membership_id') || err.constraint === 'idx_users_membership_id') {
         const conflictErr = new Error('An account with this IEEE Membership ID already exists');
         conflictErr.status = 409;
         throw conflictErr;
@@ -195,12 +212,35 @@ async function assignRole({ userId, role, scopeType = 'global', scopeId = 'globa
     throw new Error('Database connection pool is not available');
   }
 
+  const user = await findById(userId);
+  const targetUserId = user ? user.id : userId;
+
   await pool.query(
     `INSERT INTO auth_user_roles (id, user_id, role, scope_type, scope_id, committee_id, is_active)
      VALUES ($1, $2, $3, $4, $5, $6, TRUE)
      ON CONFLICT (user_id, role, scope_type, scope_id) DO UPDATE SET is_active = TRUE`,
-    [roleId, userId, role, scopeType, scopeId, committeeId]
+    [roleId, targetUserId, role, scopeType, scopeId, committeeId]
   );
+  return true;
+}
+
+async function updatePassword(userId, newPasswordHash) {
+  const pool = getPool();
+  if (!pool) {
+    throw new Error('Database connection pool is not available');
+  }
+
+  const result = await pool.query(
+    `UPDATE users SET password_hash = $1, updated_at = NOW() WHERE id = $2 AND is_active = TRUE RETURNING id`,
+    [newPasswordHash, userId]
+  );
+
+  if (!result.rows[0]) {
+    const err = new Error('User not found');
+    err.status = 404;
+    throw err;
+  }
+
   return true;
 }
 
@@ -209,5 +249,6 @@ module.exports = {
   create,
   findByEmail,
   findById,
+  updatePassword,
   validateScope,
 };

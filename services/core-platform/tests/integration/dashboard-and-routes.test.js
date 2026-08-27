@@ -63,7 +63,7 @@ test('dashboard: returns only caller committees and assigned tasks', async () =>
 
     for (const task of payload.tasks.items) {
       assert.equal(task.committeeId, IDS.committees.ai);
-      assert.equal(task.assigneeUserId, 'member-ai-1');
+      assert.equal(task.assigneeUserId, IDS.users.memberAi);
     }
 
     for (const announcement of payload.recentAnnouncements) {

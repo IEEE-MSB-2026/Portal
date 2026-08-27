@@ -119,11 +119,11 @@ async function registerAsset(req, res, next) {
     }
 
     const { query } = require('../db/pool');
-    const ownerUserRefId = req.identity?.userRefId || null;
+    const ownerUserId = req.identity?.userId || req.identity?.userRefId || null;
 
     const result = await query(
       `INSERT INTO file_assets (
-        owner_user_ref_id,
+        owner_user_id,
         purpose,
         cloudinary_asset_id,
         cloudinary_public_id,
@@ -132,9 +132,9 @@ async function registerAsset(req, res, next) {
         secure_url,
         bytes
       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-      RETURNING id, owner_user_ref_id, purpose, cloudinary_asset_id, cloudinary_public_id, resource_type, format, secure_url, bytes, created_at`,
+      RETURNING id, owner_user_id, purpose, cloudinary_asset_id, cloudinary_public_id, resource_type, format, secure_url, bytes, created_at`,
       [
-        ownerUserRefId,
+        ownerUserId,
         cleanPurpose,
         assetId,
         publicId,
@@ -150,7 +150,8 @@ async function registerAsset(req, res, next) {
       success: true,
       asset: {
         id: row.id,
-        ownerUserRefId: row.owner_user_ref_id,
+        ownerUserId: row.owner_user_id,
+        ownerUserRefId: row.owner_user_id,
         purpose: row.purpose,
         cloudinaryAssetId: row.cloudinary_asset_id,
         cloudinaryPublicId: row.cloudinary_public_id,

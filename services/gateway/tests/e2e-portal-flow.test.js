@@ -55,6 +55,8 @@ describe('Master End-to-End Portal Flow Verification', () => {
   });
 
   after(async () => {
+    const { closePool: closeGatewayPool } = require('../src/db/pool');
+    await closeGatewayPool();
     await closePool();
     if (coreServer) await new Promise((resolve) => coreServer.close(resolve));
     if (fileServer) await new Promise((resolve) => fileServer.close(resolve));

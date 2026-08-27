@@ -107,7 +107,28 @@ async function getMe(req, res, next) {
   }
 }
 
+async function changePassword(req, res, next) {
+  try {
+    const { currentPassword, newPassword, confirmPassword } = req.body || {};
+
+    if (confirmPassword !== undefined && confirmPassword !== newPassword) {
+      return res.status(400).json({ error: 'New password and confirmation do not match' });
+    }
+
+    const result = await authService.changePassword({
+      userId: req.user.id,
+      currentPassword,
+      newPassword,
+    });
+
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+}
+
 module.exports = {
+  changePassword,
   getMe,
   login,
   logout,

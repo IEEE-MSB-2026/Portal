@@ -123,7 +123,7 @@ function validateFiles(options = {}) {
         for (const file of sanitizedFiles) {
           try {
             const dbCheck = await query(
-              `SELECT id, owner_user_ref_id, cloudinary_public_id, cloudinary_asset_id, secure_url
+              `SELECT id, owner_user_id, cloudinary_public_id, cloudinary_asset_id, secure_url
                FROM file_assets
                WHERE cloudinary_public_id = $1 OR cloudinary_asset_id = $2
                LIMIT 1`,
@@ -139,12 +139,12 @@ function validateFiles(options = {}) {
             const assetRow = dbCheck.rows[0];
 
             // If asset is owned by another specific user, ensure caller is authorized (owner, admin, or officer)
-            const callerUserRefId = req.identity?.userRefId;
+            const callerUserId = req.identity?.userId || req.identity?.userRefId;
             const callerRole = req.identity?.role;
             if (
-              assetRow.owner_user_ref_id &&
-              callerUserRefId &&
-              assetRow.owner_user_ref_id !== callerUserRefId &&
+              assetRow.owner_user_id &&
+              callerUserId &&
+              assetRow.owner_user_id !== callerUserId &&
               callerRole !== 'admin' &&
               callerRole !== 'officer'
             ) {

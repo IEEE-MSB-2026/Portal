@@ -5,6 +5,7 @@ const jwt = require('jsonwebtoken');
 
 const app = require('../src/app');
 const config = require('../src/config');
+const { closePool } = require('../src/db/pool');
 const { buildCoreGatewayHeaders, buildEventClaimsHeaders } = require('../src/utils/signer');
 
 describe('Gateway & IAM Service Tests', () => {
@@ -19,7 +20,10 @@ describe('Gateway & IAM Service Tests', () => {
   });
 
   after(async () => {
-    await new Promise((resolve) => server.close(resolve));
+    if (server) {
+      await new Promise((resolve) => server.close(resolve));
+    }
+    await closePool();
   });
 
   test('GET /health returns status ok', async () => {

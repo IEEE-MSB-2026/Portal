@@ -1,15 +1,16 @@
 const { randomUUID } = require('crypto');
 const { query } = require('../db/pool');
 
-async function createResource({ committeeId, title, url, description, createdByUserRefId }) {
+async function createResource({ committeeId, title, url, description, createdByUserId, createdByUserRefId }) {
   const id = randomUUID();
+  const targetCreatorId = createdByUserId || createdByUserRefId || null;
   const result = await query(
     `
-      INSERT INTO committee_resources (id, committee_id, title, url, description, created_by_user_ref_id)
+      INSERT INTO committee_resources (id, committee_id, title, url, description, created_by_user_id)
       VALUES ($1, $2, $3, $4, $5, $6)
       RETURNING id, committee_id, title, url, description, created_at
     `,
-    [id, committeeId, title, url, description || null, createdByUserRefId]
+    [id, committeeId, title, url, description || null, targetCreatorId]
   );
 
   return result.rows[0];

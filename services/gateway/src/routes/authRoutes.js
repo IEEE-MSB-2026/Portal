@@ -11,5 +11,6 @@ router.post('/switch-context', requireJwtAuth, authController.switchContext);
 router.post('/refresh', authController.refresh);
 router.post('/logout', authController.logout);
 router.get('/me', requireJwtAuth, authController.getMe);
+router.patch('/password', requireJwtAuth, authLimiter, authController.changePassword);
 
 module.exports = router;
