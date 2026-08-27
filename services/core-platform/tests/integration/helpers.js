@@ -87,6 +87,7 @@ async function resetDatabase() {
   await query('DELETE FROM committee_resources');
   await query('DELETE FROM task_activities');
   await query('DELETE FROM tasks');
+  await query('DELETE FROM password_reset_otps');
   await query('DELETE FROM auth_refresh_tokens');
   await query('DELETE FROM auth_user_roles');
   await query('DELETE FROM committee_memberships');

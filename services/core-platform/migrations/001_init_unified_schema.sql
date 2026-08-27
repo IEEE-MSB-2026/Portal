@@ -387,3 +387,18 @@ CREATE TABLE IF NOT EXISTS branch_officers (
 
 CREATE INDEX IF NOT EXISTS idx_branch_officers_season ON branch_officers (season);
 CREATE INDEX IF NOT EXISTS idx_branch_officers_active ON branch_officers (is_active);
+
+-- 13. Password Reset OTPs
+CREATE TABLE IF NOT EXISTS password_reset_otps (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  otp_hash TEXT NOT NULL,
+  attempts INTEGER NOT NULL DEFAULT 0,
+  is_verified BOOLEAN NOT NULL DEFAULT FALSE,
+  is_used BOOLEAN NOT NULL DEFAULT FALSE,
+  expires_at TIMESTAMPTZ NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_password_reset_otps_user ON password_reset_otps (user_id);
+CREATE INDEX IF NOT EXISTS idx_password_reset_otps_expiry ON password_reset_otps (expires_at);

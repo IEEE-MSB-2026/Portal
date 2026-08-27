@@ -13,4 +13,9 @@ router.post('/logout', authController.logout);
 router.get('/me', requireJwtAuth, authController.getMe);
 router.patch('/password', requireJwtAuth, authLimiter, authController.changePassword);
 
+// 3-Step Forgot Password & OTP Recovery
+router.post('/forgot-password/request-otp', authLimiter, authController.requestPasswordResetOtp);
+router.post('/forgot-password/verify-otp', authLimiter, authController.verifyPasswordResetOtp);
+router.post('/forgot-password/reset', authLimiter, authController.resetPasswordWithToken);
+
 module.exports = router;

@@ -127,6 +127,41 @@ async function changePassword(req, res, next) {
   }
 }
 
+const passwordResetService = require('../services/passwordResetService');
+
+async function requestPasswordResetOtp(req, res, next) {
+  try {
+    const { email } = req.body || {};
+    const result = await passwordResetService.requestOtp(email);
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function verifyPasswordResetOtp(req, res, next) {
+  try {
+    const { email, otp } = req.body || {};
+    const result = await passwordResetService.verifyOtp({ email, otp });
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function resetPasswordWithToken(req, res, next) {
+  try {
+    const { resetToken, newPassword, confirmPassword } = req.body || {};
+    if (confirmPassword !== undefined && confirmPassword !== newPassword) {
+      return res.status(400).json({ error: 'Passwords do not match' });
+    }
+    const result = await passwordResetService.resetPassword({ resetToken, newPassword });
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+}
+
 module.exports = {
   changePassword,
   getMe,
@@ -134,5 +169,8 @@ module.exports = {
   logout,
   refresh,
   register,
+  requestPasswordResetOtp,
+  resetPasswordWithToken,
   switchContext,
+  verifyPasswordResetOtp,
 };

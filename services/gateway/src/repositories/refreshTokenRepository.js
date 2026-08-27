@@ -81,9 +81,20 @@ async function revokeByRawToken(rawToken) {
   await pool.query('UPDATE auth_refresh_tokens SET is_revoked = TRUE WHERE token_hash = $1', [tokenHash]);
 }
 
+async function revokeAllForUser(userId) {
+  if (!userId) return;
+  const pool = getPool();
+  if (!pool) {
+    throw new Error('Database connection pool is not available');
+  }
+
+  await pool.query('UPDATE auth_refresh_tokens SET is_revoked = TRUE WHERE user_id = $1', [userId]);
+}
+
 module.exports = {
   create,
   findByRawToken,
+  revokeAllForUser,
   revokeById,
   revokeByRawToken,
   revokeFamily,

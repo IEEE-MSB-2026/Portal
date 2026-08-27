@@ -366,4 +366,110 @@ describe('Gateway & IAM Service Tests', () => {
     assert.equal(body.userId, 'applicant-1');
     assert.equal(body.role, 'member');
   });
+
+  describe('3-Step Forgot Password & OTP Flow', () => {
+    let capturedOtp = null;
+    let resetToken = null;
+
+    test('Step 1: POST /api/auth/forgot-password/request-otp generates OTP and returns generic success', async () => {
+      // Intercept console.log to capture dev OTP
+      const originalLog = console.log;
+      console.log = (...args) => {
+        const text = args.join(' ');
+        if (text.includes('[AUTH-DEV] Password Reset OTP for')) {
+          const match = text.match(/:\s*(\d{6})/);
+          if (match) capturedOtp = match[1];
+        }
+        originalLog.apply(console, args);
+      };
+
+      const res = await fetch(`${baseUrl}/api/auth/forgot-password/request-otp`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ email: 'officer@ieee.local' }),
+      });
+
+      console.log = originalLog;
+      assert.equal(res.status, 200);
+      const body = await res.json();
+      assert.ok(body.message.includes('6-digit verification code'));
+      assert.ok(capturedOtp, 'OTP was generated and logged');
+      assert.equal(capturedOtp.length, 6);
+    });
+
+    test('Step 2: POST /api/auth/forgot-password/verify-otp enforces attempt limits and verifies code', async () => {
+      // 1. Wrong OTP rejects and decrements remaining attempts
+      const wrongRes = await fetch(`${baseUrl}/api/auth/forgot-password/verify-otp`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ email: 'officer@ieee.local', otp: '000000' }),
+      });
+      assert.equal(wrongRes.status, 400);
+      const wrongBody = await wrongRes.json();
+      assert.ok(wrongBody.error.includes('remaining'));
+
+      // 2. Correct OTP succeeds and returns resetToken
+      const correctRes = await fetch(`${baseUrl}/api/auth/forgot-password/verify-otp`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ email: 'officer@ieee.local', otp: capturedOtp }),
+      });
+      assert.equal(correctRes.status, 200);
+      const correctBody = await correctRes.json();
+      assert.ok(correctBody.resetToken);
+      resetToken = correctBody.resetToken;
+    });
+
+    test('Step 3: POST /api/auth/forgot-password/reset updates password and allows login', async () => {
+      // 1. Rejects short password
+      const shortRes = await fetch(`${baseUrl}/api/auth/forgot-password/reset`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ resetToken, newPassword: 'short' }),
+      });
+      assert.equal(shortRes.status, 400);
+
+      // 2. Accepts valid new password
+      const resetRes = await fetch(`${baseUrl}/api/auth/forgot-password/reset`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          resetToken,
+          newPassword: 'BrandNewOfficerPassword2026!',
+          confirmPassword: 'BrandNewOfficerPassword2026!',
+        }),
+      });
+      assert.equal(resetRes.status, 200);
+      const resetBody = await resetRes.json();
+      assert.ok(resetBody.message.includes('successfully'));
+
+      // 3. Login with new password succeeds
+      const loginRes = await fetch(`${baseUrl}/api/auth/login`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ email: 'officer@ieee.local', password: 'BrandNewOfficerPassword2026!' }),
+      });
+      assert.equal(loginRes.status, 200);
+
+      // 4. Token cannot be reused (replay protection)
+      const reuseRes = await fetch(`${baseUrl}/api/auth/forgot-password/reset`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ resetToken, newPassword: 'AnotherPassword123!' }),
+      });
+      assert.equal(reuseRes.status, 400);
+
+      // Restore password for officer
+      const loginData = await loginRes.json();
+      await fetch(`${baseUrl}/api/auth/password`, {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json', authorization: `Bearer ${loginData.token}` },
+        body: JSON.stringify({
+          currentPassword: 'BrandNewOfficerPassword2026!',
+          newPassword: 'password123',
+          confirmPassword: 'password123',
+        }),
+      });
+    });
+  });
 });
