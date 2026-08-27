@@ -2,7 +2,7 @@ const jwt = require('jsonwebtoken');
 const config = require('../config');
 const refreshTokenRepository = require('../repositories/refreshTokenRepository');
 
-function generateAccessToken({ user, role, scopeType, scopeId, committeeName }) {
+function generateAccessToken({ user, role, scopeType, scopeId, committeeSlug }) {
   const activeRole = role || user.defaultRole || 'member';
   const activeScopeType = scopeType || user.defaultScopeType || 'global';
   const activeScopeId = scopeId || user.defaultScopeId || 'global';
@@ -16,15 +16,15 @@ function generateAccessToken({ user, role, scopeType, scopeId, committeeName }) 
       scopeId: activeScopeId,
       name: user.name,
       committeeId: activeScopeType === 'committee' ? activeScopeId : null,
-      committeeName: committeeName || null,
+      committeeSlug: committeeSlug || null,
     },
     config.jwtSecret,
     { expiresIn: config.accessTokenTtl || '15m' }
   );
 }
 
-async function issueTokenPair({ user, role, scopeType, scopeId, committeeName }) {
-  const token = generateAccessToken({ user, role, scopeType, scopeId, committeeName });
+async function issueTokenPair({ user, role, scopeType, scopeId, committeeSlug }) {
+  const token = generateAccessToken({ user, role, scopeType, scopeId, committeeSlug });
   const { refreshToken, expiresAt } = await refreshTokenRepository.create({
     userId: user.id,
     ttlDays: config.refreshTokenTtlDays,

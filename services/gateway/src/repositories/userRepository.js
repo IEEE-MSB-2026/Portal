@@ -7,9 +7,9 @@ function capitalize(str) {
   return str.charAt(0).toUpperCase() + str.slice(1);
 }
 
-function buildScopeLabel(role, scopeType, committeeName) {
+function buildScopeLabel(role, scopeType, committeeSlug) {
   if (scopeType === 'committee') {
-    return `${capitalize(role)} - ${committeeName || 'Committee'}`;
+    return `${capitalize(role)} - ${committeeSlug ? committeeSlug.toUpperCase() : 'Committee'}`;
   }
   return `${capitalize(role)} (${capitalize(scopeType)})`;
 }
@@ -34,7 +34,7 @@ async function findByEmail(email) {
   if (!user) return null;
 
   const rolesRes = await pool.query(
-    `SELECT aur.id, aur.role, aur.scope_type, aur.scope_id, aur.committee_id, c.name AS committee_name
+    `SELECT aur.id, aur.role, aur.scope_type, aur.scope_id, aur.committee_id, c.slug AS committee_slug, c.name AS committee_name
      FROM auth_user_roles aur
      LEFT JOIN committees c ON c.id = aur.committee_id
      WHERE aur.user_id = $1 AND aur.is_active = TRUE`,
@@ -57,8 +57,9 @@ async function findByEmail(email) {
       scopeType: r.scope_type,
       scopeId: r.scope_id,
       committeeId: r.committee_id,
+      committeeSlug: r.committee_slug || null,
       committeeName: r.committee_name || null,
-      label: buildScopeLabel(r.role, r.scope_type, r.committee_name),
+      label: buildScopeLabel(r.role, r.scope_type, r.committee_slug || r.committee_name),
     })),
   };
 }
@@ -99,7 +100,7 @@ async function findById(id) {
   if (!user) return null;
 
   const rolesRes = await pool.query(
-    `SELECT aur.id, aur.role, aur.scope_type, aur.scope_id, aur.committee_id, c.name AS committee_name
+    `SELECT aur.id, aur.role, aur.scope_type, aur.scope_id, aur.committee_id, c.slug AS committee_slug, c.name AS committee_name
      FROM auth_user_roles aur
      LEFT JOIN committees c ON c.id = aur.committee_id
      WHERE aur.user_id = $1 AND aur.is_active = TRUE`,
@@ -122,8 +123,9 @@ async function findById(id) {
       scopeType: r.scope_type,
       scopeId: r.scope_id,
       committeeId: r.committee_id,
+      committeeSlug: r.committee_slug || null,
       committeeName: r.committee_name || null,
-      label: buildScopeLabel(r.role, r.scope_type, r.committee_name),
+      label: buildScopeLabel(r.role, r.scope_type, r.committee_slug || r.committee_name),
     })),
   };
 }

@@ -16,16 +16,25 @@ async function requireJwtAuth(req, res, next) {
       return res.status(401).json({ error: 'User not found or session expired' });
     }
 
+    const activeScopeType = decoded.scopeType || user.defaultScopeType;
+    const activeScopeId = decoded.scopeId || user.defaultScopeId;
+    const activeRole = decoded.role || user.defaultRole;
+    const matchingScope = (user.availableScopes || []).find(
+      (s) => (s.scopeId === activeScopeId || s.committeeId === activeScopeId) && s.role === activeRole
+    );
+    const committeeSlug = decoded.committeeSlug || matchingScope?.committeeSlug || null;
+    const committeeId = decoded.committeeId !== undefined ? decoded.committeeId : (matchingScope?.committeeId || (activeScopeType === 'committee' ? activeScopeId : null));
+
     req.user = user;
     req.decoded = decoded;
     req.identity = {
       userId: decoded.sub,
       email: decoded.email,
-      role: decoded.role || user.defaultRole,
-      scopeType: decoded.scopeType || user.defaultScopeType,
-      scopeId: decoded.scopeId || user.defaultScopeId,
-      committeeId: decoded.committeeId !== undefined ? decoded.committeeId : (decoded.scopeType === 'committee' ? decoded.scopeId : null),
-      committeeName: decoded.committeeName || null,
+      role: activeRole,
+      scopeType: activeScopeType,
+      scopeId: activeScopeId,
+      committeeId,
+      committeeSlug,
     };
 
     next();

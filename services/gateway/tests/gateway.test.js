@@ -205,6 +205,75 @@ describe('Gateway & IAM Service Tests', () => {
     assert.equal(logoutRes.status, 200);
   });
 
+  test('PATCH /api/auth/password validates current password and updates to new password', async () => {
+    // 1. Register or login a user
+    const loginRes = await fetch(`${baseUrl}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ email: 'member.ai@ieee.local', password: 'password123' }),
+    });
+    assert.equal(loginRes.status, 200);
+    const { token } = await loginRes.json();
+
+    // 2. Reject mismatching confirm password
+    const mismatchRes = await fetch(`${baseUrl}/api/auth/password`, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
+      body: JSON.stringify({
+        currentPassword: 'password123',
+        newPassword: 'NewSecurePassword123!',
+        confirmPassword: 'DifferentPassword123!',
+      }),
+    });
+    assert.equal(mismatchRes.status, 400);
+
+    // 3. Reject incorrect current password
+    const wrongOldRes = await fetch(`${baseUrl}/api/auth/password`, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
+      body: JSON.stringify({
+        currentPassword: 'wrongCurrentPassword',
+        newPassword: 'NewSecurePassword123!',
+        confirmPassword: 'NewSecurePassword123!',
+      }),
+    });
+    assert.equal(wrongOldRes.status, 401);
+
+    // 4. Successfully change password
+    const successRes = await fetch(`${baseUrl}/api/auth/password`, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
+      body: JSON.stringify({
+        currentPassword: 'password123',
+        newPassword: 'NewSecurePassword123!',
+        confirmPassword: 'NewSecurePassword123!',
+      }),
+    });
+    assert.equal(successRes.status, 200);
+    const successBody = await successRes.json();
+    assert.ok(successBody.message.includes('successfully'));
+
+    // 5. Login with new password succeeds
+    const newLoginRes = await fetch(`${baseUrl}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ email: 'member.ai@ieee.local', password: 'NewSecurePassword123!' }),
+    });
+    assert.equal(newLoginRes.status, 200);
+
+    // 6. Reset password back for subsequent tests
+    const resetRes = await fetch(`${baseUrl}/api/auth/password`, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${(await newLoginRes.json()).token}` },
+      body: JSON.stringify({
+        currentPassword: 'NewSecurePassword123!',
+        newPassword: 'password123',
+        confirmPassword: 'password123',
+      }),
+    });
+    assert.equal(resetRes.status, 200);
+  });
+
   test('Signer: buildCoreGatewayHeaders generates valid HMAC signature headers', () => {
     const headers = buildCoreGatewayHeaders(
       'GET',

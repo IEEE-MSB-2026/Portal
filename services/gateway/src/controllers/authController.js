@@ -99,7 +99,7 @@ async function getMe(req, res, next) {
         scopeType: req.identity.scopeType,
         scopeId: req.identity.scopeId,
         committeeId: req.identity.committeeId,
-        committeeName: req.identity.committeeName,
+        committeeSlug: req.identity.committeeSlug,
       },
     });
   } catch (err) {

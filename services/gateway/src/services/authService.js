@@ -23,11 +23,18 @@ async function login({ email, password }) {
     throw err;
   }
 
+  const defaultScope = (user.availableScopes || []).find(
+    (s) => (s.scopeId === user.defaultScopeId || s.committeeId === user.defaultScopeId) && s.role === user.defaultRole
+  );
+  const committeeSlug = defaultScope?.committeeSlug || null;
+  const committeeId = defaultScope?.committeeId || (user.defaultScopeType === 'committee' ? user.defaultScopeId : null);
+
   const { token, refreshToken, expiresAt } = await tokenService.issueTokenPair({
     user,
     role: user.defaultRole,
     scopeType: user.defaultScopeType,
     scopeId: user.defaultScopeId,
+    committeeSlug,
   });
 
   const { passwordHash: _, ...userData } = user;
@@ -40,6 +47,8 @@ async function login({ email, password }) {
       role: user.defaultRole,
       scopeType: user.defaultScopeType,
       scopeId: user.defaultScopeId,
+      committeeId,
+      committeeSlug,
     },
   };
 }
@@ -62,11 +71,17 @@ async function register({ email, password, name, membershipId = null, role = 'me
     committeeId,
   });
 
+  const defaultScope = (user.availableScopes || []).find(
+    (s) => (s.scopeId === user.defaultScopeId || s.committeeId === user.defaultScopeId) && s.role === user.defaultRole
+  );
+  const committeeSlug = defaultScope?.committeeSlug || null;
+
   const { token, refreshToken, expiresAt } = await tokenService.issueTokenPair({
     user,
     role: user.defaultRole,
     scopeType: user.defaultScopeType,
     scopeId: user.defaultScopeId,
+    committeeSlug,
   });
 
   const { passwordHash: _, ...userData } = user;
@@ -79,6 +94,8 @@ async function register({ email, password, name, membershipId = null, role = 'me
       role: user.defaultRole,
       scopeType: user.defaultScopeType,
       scopeId: user.defaultScopeId,
+      committeeId: user.defaultScopeType === 'committee' ? user.defaultScopeId : null,
+      committeeSlug,
     },
   };
 }
@@ -104,7 +121,7 @@ async function switchContext({ user, targetScopeId }) {
     role: target.role,
     scopeType: target.scopeType,
     scopeId: target.scopeId,
-    committeeName: target.committeeName,
+    committeeSlug: target.committeeSlug,
   });
 
   const { passwordHash: _, ...userData } = user;
@@ -116,7 +133,7 @@ async function switchContext({ user, targetScopeId }) {
       scopeType: target.scopeType,
       scopeId: target.scopeId,
       committeeId: target.committeeId || (target.scopeType === 'committee' ? target.scopeId : null),
-      committeeName: target.committeeName || null,
+      committeeSlug: target.committeeSlug || null,
       activeScope: target,
       availableScopes: available,
     },
@@ -138,11 +155,18 @@ async function refreshTokens(rawRefreshToken) {
     throw err;
   }
 
+  const defaultScope = (user.availableScopes || []).find(
+    (s) => (s.scopeId === user.defaultScopeId || s.committeeId === user.defaultScopeId) && s.role === user.defaultRole
+  );
+  const committeeSlug = defaultScope?.committeeSlug || null;
+  const committeeId = defaultScope?.committeeId || (user.defaultScopeType === 'committee' ? user.defaultScopeId : null);
+
   const token = tokenService.generateAccessToken({
     user,
     role: user.defaultRole,
     scopeType: user.defaultScopeType,
     scopeId: user.defaultScopeId,
+    committeeSlug,
   });
 
   const { passwordHash: _, ...userData } = user;
@@ -155,6 +179,8 @@ async function refreshTokens(rawRefreshToken) {
       role: user.defaultRole,
       scopeType: user.defaultScopeType,
       scopeId: user.defaultScopeId,
+      committeeId,
+      committeeSlug,
     },
   };
 }

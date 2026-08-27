@@ -208,6 +208,31 @@ async function seedBaseData() {
       ON CONFLICT (id) DO NOTHING
     `
   );
+
+  await query(
+    `
+      INSERT INTO auth_user_roles (id, user_id, role, scope_type, scope_id, committee_id, is_active)
+      VALUES
+        ('c1111111-1111-4111-8111-111111111111', $1::uuid, 'admin', 'global', 'global', NULL, TRUE),
+        ('c2222222-2222-4222-8222-111111111111', $2::uuid, 'officer', 'global', 'global', NULL, TRUE),
+        ('c3333333-3333-4333-8333-111111111111', $3::uuid, 'lead', 'committee', $5::text, $5::uuid, TRUE),
+        ('c3333333-3333-4333-8333-323232323232', $3::uuid, 'member', 'committee', $7::text, $7::uuid, TRUE),
+        ('c9999999-9999-4999-8999-111111111111', $4::uuid, 'member', 'committee', $5::text, $5::uuid, TRUE),
+        ('c9999999-9999-4999-8999-222222222222', $4::uuid, 'member', 'committee', $6::text, $6::uuid, TRUE),
+        ('c1212121-1212-4121-8121-121212121212', $8::uuid, 'member', 'committee', $6::text, $6::uuid, TRUE)
+      ON CONFLICT (user_id, role, scope_type, scope_id) DO UPDATE SET is_active = TRUE;
+    `,
+    [
+      IDS.users.admin,
+      IDS.users.officer,
+      IDS.users.leadAi,
+      IDS.users.memberAi,
+      IDS.committees.ai,
+      IDS.committees.web,
+      IDS.committees.hr,
+      IDS.users.memberWeb,
+    ]
+  );
 }
 
 async function prepareDatabase() {
