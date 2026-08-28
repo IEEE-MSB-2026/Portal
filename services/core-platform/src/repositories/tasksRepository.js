@@ -288,8 +288,8 @@ async function listCommitteeTasks(committeeId, { limit, cursor, isArchived = fal
         creator.id AS created_by_external_user_id,
         creator.name AS creator_name
       FROM tasks t
-      JOIN users assignee ON assignee.id = t.assignee_user_id
-      JOIN users creator ON creator.id = t.created_by_user_id
+      LEFT JOIN users assignee ON assignee.id = t.assignee_user_id
+      LEFT JOIN users creator ON creator.id = t.created_by_user_id
       WHERE t.committee_id = $1
         AND t.is_archived = $3
       ${cursorClause}
@@ -355,22 +355,24 @@ async function getTaskStatusCountsForUser(userId) {
   const result = await query(
     `
       SELECT
-        COUNT(*) FILTER (WHERE is_archived = FALSE)::int AS total,
+        COUNT(*)::int AS total,
         COUNT(*) FILTER (WHERE status = 'todo' AND is_archived = FALSE)::int AS todo,
         COUNT(*) FILTER (WHERE status = 'in_progress' AND is_archived = FALSE)::int AS in_progress,
-        COUNT(*) FILTER (WHERE status = 'done' AND is_archived = FALSE)::int AS done
+        COUNT(*) FILTER (WHERE status = 'done')::int AS done,
+        COUNT(*) FILTER (WHERE is_archived = TRUE)::int AS archived
       FROM tasks
       WHERE assignee_user_id = $1
     `,
     [userId]
   );
 
-  const row = result.rows[0] || { total: 0, todo: 0, in_progress: 0, done: 0 };
+  const row = result.rows[0] || { total: 0, todo: 0, in_progress: 0, done: 0, archived: 0 };
   return {
     total: row.total,
     todo: row.todo,
     inProgress: row.in_progress,
     done: row.done,
+    archived: row.archived,
   };
 }
 

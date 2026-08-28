@@ -5,6 +5,8 @@ const workspaceController = require('../controllers/workspaceController');
 const taskController = require('../controllers/taskController');
 const resourceController = require('../controllers/resourceController');
 const membershipController = require('../controllers/membershipController');
+const committeeAnnouncementController = require('../controllers/committeeAnnouncementController');
+const assignmentController = require('../controllers/assignmentController');
 const hrCampaignController = require('../controllers/hrCampaignController');
 const hrApplicationController = require('../controllers/hrApplicationController');
 const hrOnboardingController = require('../controllers/hrOnboardingController');
@@ -24,6 +26,8 @@ router.use(verifyGatewaySignature);
 router.use(attachUserRef);
 
 router.get('/me/dashboard', dashboardController.getMyDashboard);
+router.get('/me/stats', dashboardController.getMyStats);
+router.get('/me/profile', dashboardController.getMyProfile);
 router.patch('/me/profile', dashboardController.updateMyProfile);
 router.patch(
   '/me/avatar',
@@ -34,13 +38,26 @@ router.get('/committees/:committeeId/workspace', requireCommitteeScope('committe
 router.post('/committees/:committeeId/tasks', requireCommitteeScope('committeeId'), taskController.createTask);
 router.get('/committees/:committeeId/resources', requireCommitteeScope('committeeId'), resourceController.listCommitteeResources);
 router.post('/committees/:committeeId/resources', requireCommitteeScope('committeeId'), resourceController.createCommitteeResource);
+router.patch('/committees/:committeeId/resources/:resourceId', requireCommitteeScope('committeeId'), resourceController.updateCommitteeResource);
 router.delete('/committees/:committeeId/resources/:resourceId', requireCommitteeScope('committeeId'), resourceController.deleteCommitteeResource);
 router.get('/committees/:committeeId/memberships', requireCommitteeScope('committeeId'), membershipController.listCommitteeMemberships);
 router.get('/committees/:committeeId/members', requireCommitteeScope('committeeId'), membershipController.searchCommitteeMembers);
 router.post('/committees/:committeeId/memberships', requireCommitteeScope('committeeId'), membershipController.upsertCommitteeMembership);
 router.delete('/committees/:committeeId/memberships/:userId', requireCommitteeScope('committeeId'), membershipController.removeCommitteeMembership);
+router.get('/committees/:committeeId/announcements', requireCommitteeScope('committeeId'), committeeAnnouncementController.listCommitteeAnnouncements);
+router.post('/committees/:committeeId/announcements', requireCommitteeScope('committeeId'), committeeAnnouncementController.createCommitteeAnnouncement);
+router.patch('/committees/:committeeId/announcements/:announcementId/pin', requireCommitteeScope('committeeId'), committeeAnnouncementController.updateCommitteeAnnouncementPin);
+router.delete('/committees/:committeeId/announcements/:announcementId', requireCommitteeScope('committeeId'), committeeAnnouncementController.deleteCommitteeAnnouncement);
+router.get('/committees/:committeeId/assignments', requireCommitteeScope('committeeId'), assignmentController.listCommitteeAssignments);
+router.post('/committees/:committeeId/assignments', requireCommitteeScope('committeeId'), assignmentController.createCommitteeAssignment);
+router.patch('/committees/:committeeId/assignments/:assignmentId', requireCommitteeScope('committeeId'), assignmentController.updateCommitteeAssignment);
+router.delete('/committees/:committeeId/assignments/:assignmentId', requireCommitteeScope('committeeId'), assignmentController.deleteCommitteeAssignment);
+router.post('/committees/:committeeId/assignments/:assignmentId/submit', requireCommitteeScope('committeeId'), assignmentController.submitAssignment);
+router.get('/committees/:committeeId/assignments/:assignmentId/submissions', requireCommitteeScope('committeeId'), assignmentController.listAssignmentSubmissions);
+router.patch('/committees/:committeeId/assignments/:assignmentId/submissions/:submissionId/grade', requireCommitteeScope('committeeId'), assignmentController.gradeAssignmentSubmission);
 router.patch('/tasks/:taskId', taskController.updateTask);
 router.patch('/tasks/:taskId/status', taskController.updateTaskStatus);
+router.patch('/tasks/:taskId/claim', taskController.claimTask);
 router.patch('/tasks/:taskId/archive', taskController.archiveTask);
 router.delete('/tasks/:taskId', taskController.deleteTask);
 router.post('/hr/campaigns', hrCampaignController.createCampaign);

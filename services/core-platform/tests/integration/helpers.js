@@ -84,6 +84,10 @@ async function resetDatabase() {
   await query('DELETE FROM hr_application_stage_log');
   await query('DELETE FROM hr_applications');
   await query('DELETE FROM hr_campaigns');
+  await query('DELETE FROM assignment_submissions');
+  await query('DELETE FROM committee_assignments');
+  await query('DELETE FROM committee_announcements');
+  await query('DELETE FROM committee_activities');
   await query('DELETE FROM committee_resources');
   await query('DELETE FROM task_activities');
   await query('DELETE FROM tasks');
@@ -139,7 +143,7 @@ async function seedBaseData() {
         ($1, $5, $8, 'lead'),
         ($2, $5, $9, 'member'),
         ($3, $6, $10, 'member'),
-        ($4, $7, $8, 'lead')
+        ($4, $7, $8, 'member')
       ON CONFLICT (committee_id, user_id) DO NOTHING
     `,
     [

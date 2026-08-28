@@ -3,6 +3,7 @@ const { HttpError } = require('../utils/httpErrors');
 const { isUuid } = require('../utils/ids');
 const committeesRepository = require('../repositories/committeesRepository');
 const resourcesRepository = require('../repositories/resourcesRepository');
+const taskActivityRepository = require('../repositories/taskActivityRepository');
 const authzService = require('../services/authzService');
 
 function parseResourceInput(body) {
@@ -87,6 +88,14 @@ async function createCommitteeResource(req, res, next) {
       createdByUserRefId: req.identity.userRefId,
     });
 
+    await taskActivityRepository.recordCommitteeActivity({
+      committeeId,
+      actorUserId: req.identity.userRefId,
+      activityType: 'resource_added',
+      title: `added resource "${resource.title}"`,
+      details: { resourceId: resource.id, resourceType: resource.resourceType },
+    }).catch(() => {});
+
     logger.info({
       event: 'committee.resource.created',
       requestId: req.requestId,
@@ -106,6 +115,53 @@ async function createCommitteeResource(req, res, next) {
         description: resource.description,
         createdAt: resource.createdAt,
       },
+    });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+async function updateCommitteeResource(req, res, next) {
+  try {
+    const { committeeId, resourceId } = req.params;
+    if (!isUuid(committeeId)) {
+      throw new HttpError(400, 'Invalid committeeId format');
+    }
+    if (!isUuid(resourceId)) {
+      throw new HttpError(400, 'Invalid resourceId format');
+    }
+
+    const committee = await committeesRepository.getCommitteeById(committeeId);
+    if (!committee) {
+      throw new HttpError(404, 'Committee not found');
+    }
+
+    const membershipRole = await authzService.getMembershipRoleForCommittee(req.identity, committeeId);
+    const canManage = authzService.canManageCommitteeContent({ identity: req.identity, membershipRole });
+    if (!canManage) {
+      throw new HttpError(403, 'Forbidden');
+    }
+
+    const existing = await resourcesRepository.getResourceById(resourceId);
+    if (!existing || existing.committeeId !== committeeId) {
+      throw new HttpError(404, 'Resource not found in committee');
+    }
+
+    const updateData = {};
+    if (req.body?.title !== undefined) {
+      const title = String(req.body.title).trim();
+      if (!title) throw new HttpError(400, 'title cannot be empty');
+      updateData.title = title;
+    }
+    if (req.body?.description !== undefined) {
+      updateData.description = req.body.description ? String(req.body.description).trim() : null;
+    }
+
+    const updated = await resourcesRepository.updateResource(resourceId, committeeId, updateData);
+
+    return res.status(200).json({
+      message: 'Resource updated successfully',
+      resource: updated,
     });
   } catch (error) {
     return next(error);
@@ -135,7 +191,7 @@ async function deleteCommitteeResource(req, res, next) {
 
     const existing = await resourcesRepository.getResourceById(resourceId);
     if (!existing || existing.committeeId !== committeeId) {
-      throw new HttpError(404, 'Resource not found');
+      throw new HttpError(404, 'Resource not found in committee');
     }
 
     await resourcesRepository.deleteResource(resourceId, committeeId);
@@ -148,14 +204,18 @@ async function deleteCommitteeResource(req, res, next) {
       actorUserId: req.identity.externalUserId,
     });
 
-    return res.status(200).json({ success: true, message: 'Resource deleted successfully' });
+    return res.status(200).json({
+      message: 'Resource deleted successfully',
+      resourceId,
+    });
   } catch (error) {
     return next(error);
   }
 }
 
 module.exports = {
-  createCommitteeResource,
   listCommitteeResources,
+  createCommitteeResource,
+  updateCommitteeResource,
   deleteCommitteeResource,
 };

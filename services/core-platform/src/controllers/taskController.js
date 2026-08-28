@@ -22,14 +22,12 @@ function parseTaskInput(body) {
   const priority = typeof body.priority === 'string' && ALLOWED_PRIORITIES.has(body.priority.trim().toLowerCase())
     ? body.priority.trim().toLowerCase()
     : 'medium';
-  const assigneeUserId = typeof body.assigneeUserId === 'string' ? body.assigneeUserId.trim() : '';
+  const rawAssignee = typeof body.assigneeUserId === 'string' ? body.assigneeUserId.trim() : '';
+  const assigneeUserId = rawAssignee || null;
   const dueAt = body.dueAt ? new Date(body.dueAt) : null;
 
   if (!title) {
     throw new HttpError(400, 'title is required');
-  }
-  if (!assigneeUserId) {
-    throw new HttpError(400, 'assigneeUserId is required');
   }
   if (dueAt && Number.isNaN(dueAt.getTime())) {
     throw new HttpError(400, 'dueAt must be a valid ISO date-time');
@@ -64,14 +62,17 @@ async function createTask(req, res, next) {
 
     const payload = parseTaskInput(req.body || {});
 
-    const assigneeUserRef = await usersRepository.findByExternalUserId(payload.assigneeUserId);
-    if (!assigneeUserRef) {
-      throw new HttpError(400, 'Assignee user not found');
-    }
+    let assigneeUserRef = null;
+    if (payload.assigneeUserId) {
+      assigneeUserRef = await usersRepository.findByExternalUserId(payload.assigneeUserId);
+      if (!assigneeUserRef) {
+        throw new HttpError(400, 'Assignee user not found');
+      }
 
-    const isAssigneeMember = await committeesRepository.isMemberOfCommittee(assigneeUserRef.id, committeeId);
-    if (!isAssigneeMember) {
-      throw new HttpError(400, 'Assignee must be a member of this committee');
+      const isAssigneeMember = await committeesRepository.isMemberOfCommittee(assigneeUserRef.id, committeeId);
+      if (!isAssigneeMember) {
+        throw new HttpError(400, 'Assignee must be a member of this committee');
+      }
     }
 
     const task = await tasksRepository.createTask({
@@ -79,7 +80,7 @@ async function createTask(req, res, next) {
       title: payload.title,
       description: payload.description,
       priority: payload.priority,
-      assigneeUserRefId: assigneeUserRef.id,
+      assigneeUserRefId: assigneeUserRef ? assigneeUserRef.id : null,
       createdByUserRefId: req.identity.userRefId,
       dueAt: payload.dueAt,
     });
@@ -92,13 +93,32 @@ async function createTask(req, res, next) {
       toStatus: task.status,
     });
 
-    await taskActivityRepository.createTaskActivity({
-      taskId: task.id,
-      actorUserRefId: req.identity.userRefId,
-      action: 'assigned',
-      fromStatus: null,
-      toStatus: null,
-    });
+    if (assigneeUserRef) {
+      await taskActivityRepository.createTaskActivity({
+        taskId: task.id,
+        actorUserRefId: req.identity.userRefId,
+        action: 'assigned',
+        fromStatus: null,
+        toStatus: null,
+      });
+
+      await taskActivityRepository.recordCommitteeActivity({
+        committeeId,
+        actorUserId: req.identity.userRefId,
+        targetUserId: assigneeUserRef.id,
+        activityType: 'task_created',
+        title: `assigned task "${task.title}"`,
+        details: { taskId: task.id, priority: task.priority },
+      }).catch(() => {});
+    } else {
+      await taskActivityRepository.recordCommitteeActivity({
+        committeeId,
+        actorUserId: req.identity.userRefId,
+        activityType: 'task_created',
+        title: `created task "${task.title}"`,
+        details: { taskId: task.id, priority: task.priority },
+      }).catch(() => {});
+    }
 
     logger.info({
       event: 'task.created',
@@ -110,28 +130,30 @@ async function createTask(req, res, next) {
       priority: task.priority,
     });
 
-    const notificationResult = await emailNotificationService.sendTaskAssignmentNotification({
-      requestId: req.requestId,
-      route: req.originalUrl || `${req.baseUrl || ''}${req.path || ''}`,
-      committeeName: committee.name,
-      taskId: task.id,
-      taskTitle: task.title,
-      taskDescription: task.description,
-      taskDueAt: task.due_at,
-      assigneeExternalUserId: payload.assigneeUserId,
-      assigneeEmail: assigneeUserRef.email,
-      actorExternalUserId: req.identity.externalUserId,
-    });
-
-    if (!notificationResult.ok) {
-      logger.warn({
-        event: 'task.assignment.notification.undelivered',
+    if (assigneeUserRef) {
+      const notificationResult = await emailNotificationService.sendTaskAssignmentNotification({
         requestId: req.requestId,
+        route: req.originalUrl || `${req.baseUrl || ''}${req.path || ''}`,
+        committeeName: committee.name,
         taskId: task.id,
-        targetEmail: notificationResult.recipientEmail || assigneeUserRef.email || null,
-        reason: notificationResult.reason,
-        statusCode: notificationResult.statusCode,
-      }, 'Task assignment email notification was skipped or failed');
+        taskTitle: task.title,
+        taskDescription: task.description,
+        taskDueAt: task.due_at,
+        assigneeExternalUserId: payload.assigneeUserId,
+        assigneeEmail: assigneeUserRef.email,
+        actorExternalUserId: req.identity.externalUserId,
+      });
+
+      if (!notificationResult.ok) {
+        logger.warn({
+          event: 'task.assignment.notification.undelivered',
+          requestId: req.requestId,
+          taskId: task.id,
+          targetEmail: notificationResult.recipientEmail || assigneeUserRef.email || null,
+          reason: notificationResult.reason,
+          statusCode: notificationResult.statusCode,
+        }, 'Task assignment email notification was skipped or failed');
+      }
     }
 
     return res.status(201).json({
@@ -194,15 +216,19 @@ async function updateTask(req, res, next) {
     }
 
     if (body.assigneeUserId !== undefined) {
-      const assigneeUserRef = await usersRepository.findByExternalUserId(body.assigneeUserId);
-      if (!assigneeUserRef) {
-        throw new HttpError(400, 'Assignee user not found');
+      if (body.assigneeUserId === null || body.assigneeUserId === '') {
+        updates.assigneeUserId = null;
+      } else {
+        const assigneeUserRef = await usersRepository.findByExternalUserId(body.assigneeUserId);
+        if (!assigneeUserRef) {
+          throw new HttpError(400, 'Assignee user not found');
+        }
+        const isAssigneeMember = await committeesRepository.isMemberOfCommittee(assigneeUserRef.id, task.committee_id);
+        if (!isAssigneeMember) {
+          throw new HttpError(400, 'Assignee must be a member of this committee');
+        }
+        updates.assigneeUserId = assigneeUserRef.id;
       }
-      const isAssigneeMember = await committeesRepository.isMemberOfCommittee(assigneeUserRef.id, task.committee_id);
-      if (!isAssigneeMember) {
-        throw new HttpError(400, 'Assignee must be a member of this committee');
-      }
-      updates.assigneeUserId = assigneeUserRef.id;
     }
 
     if (body.dueAt !== undefined) {
@@ -386,6 +412,16 @@ async function updateTaskStatus(req, res, next) {
       toStatus: newStatus,
     });
 
+    if (newStatus === 'done') {
+      await taskActivityRepository.recordCommitteeActivity({
+        committeeId: updatedTask.committee_id,
+        actorUserId: req.identity.userRefId,
+        activityType: 'task_completed',
+        title: `completed task "${updatedTask.title}"`,
+        details: { taskId: updatedTask.id },
+      }).catch(() => {});
+    }
+
     logger.info({
       event: 'task.status_changed',
       requestId: req.requestId,
@@ -416,9 +452,61 @@ async function updateTaskStatus(req, res, next) {
   }
 }
 
+async function claimTask(req, res, next) {
+  try {
+    const taskId = req.params.taskId;
+    if (!isUuid(taskId)) {
+      throw new HttpError(400, 'Invalid taskId format');
+    }
+
+    const task = await tasksRepository.getTaskById(taskId);
+    if (!task) {
+      throw new HttpError(404, 'Task not found');
+    }
+
+    const canRead = await authzService.canReadCommittee(req.identity, task.committee_id);
+    if (!canRead) {
+      throw new HttpError(403, 'Forbidden');
+    }
+
+    if (task.assigneeUserId || task.assigneeUserRefId) {
+      throw new HttpError(400, 'Task is already assigned to a member');
+    }
+
+    const updatedTask = await tasksRepository.updateTask(taskId, {
+      assigneeUserId: req.identity.userRefId,
+    });
+
+    await taskActivityRepository.createTaskActivity({
+      taskId,
+      actorUserRefId: req.identity.userRefId,
+      action: 'assigned',
+      fromStatus: null,
+      toStatus: null,
+    });
+
+    await taskActivityRepository.recordCommitteeActivity({
+      committeeId: task.committee_id,
+      actorUserId: req.identity.userRefId,
+      targetUserId: req.identity.userRefId,
+      activityType: 'task_created',
+      title: `claimed task "${task.title}"`,
+      details: { taskId },
+    }).catch(() => {});
+
+    return res.status(200).json({
+      message: 'Task claimed successfully',
+      task: updatedTask,
+    });
+  } catch (error) {
+    return next(error);
+  }
+}
+
 module.exports = {
   createTask,
   updateTask,
+  claimTask,
   archiveTask,
   deleteTask,
   updateTaskStatus,

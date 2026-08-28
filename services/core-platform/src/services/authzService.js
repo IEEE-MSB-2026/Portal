@@ -74,6 +74,10 @@ async function getMembershipRoleForCommittee(identity, committeeId) {
     return null;
   }
 
+  if (identity.scopeType === 'committee' && identity.scopeId === committeeId && identity.role) {
+    return identity.role;
+  }
+
   return committeesRepository.getMembershipRole(identity.userRefId, committeeId);
 }
 

@@ -3,6 +3,8 @@ const committeesRepository = require('../repositories/committeesRepository');
 const tasksRepository = require('../repositories/tasksRepository');
 const taskActivityRepository = require('../repositories/taskActivityRepository');
 const prAnnouncementsRepository = require('../repositories/prAnnouncementsRepository');
+const committeeAnnouncementsRepository = require('../repositories/committeeAnnouncementsRepository');
+const assignmentsRepository = require('../repositories/assignmentsRepository');
 const { decodeCursor, parseLimit } = require('../utils/pagination');
 const { HttpError } = require('../utils/httpErrors');
 
@@ -32,6 +34,13 @@ async function getMyDashboard(req, res, next) {
       tasksRepository.getTaskStatusCountsForUser(req.identity.userRefId),
     ]);
 
+    const committeeIds = (committees || []).map((c) => c.id);
+
+    const [committeeAnnouncements, pendingAssignments] = await Promise.all([
+      committeeAnnouncementsRepository.listAnnouncementsForCommittees(committeeIds, { limit: 10 }),
+      assignmentsRepository.listPendingAssignmentsForUser(req.identity.userRefId, committeeIds),
+    ]);
+
     return res.status(200).json({
       user: {
         userId: req.identity.externalUserId,
@@ -46,6 +55,8 @@ async function getMyDashboard(req, res, next) {
       committees,
       tasks: assignedTasks,
       taskStats: taskStats || { total: 0, todo: 0, inProgress: 0, done: 0 },
+      pendingAssignments: pendingAssignments || [],
+      committeeAnnouncements: committeeAnnouncements || [],
       recentActivity,
       recentAnnouncements: recentAnnouncements.map((a) => ({
         id: a.id,
@@ -107,6 +118,67 @@ async function updateMyAvatar(req, res, next) {
   }
 }
 
+async function getMyProfile(req, res, next) {
+  try {
+    const userRef = await usersRepository.findByExternalUserId(req.identity.externalUserId);
+    if (!userRef) {
+      throw new HttpError(404, 'User not found');
+    }
+    return res.status(200).json({
+      user: {
+        userId: userRef.externalUserId,
+        email: userRef.email,
+        name: userRef.name,
+        avatarUrl: userRef.avatarUrl,
+        membershipId: userRef.membershipId,
+        createdAt: userRef.createdAt,
+      },
+    });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+async function getMyStats(req, res, next) {
+  try {
+    const [userRef, committees, taskStats] = await Promise.all([
+      usersRepository.findByExternalUserId(req.identity.externalUserId),
+      committeesRepository.listCommitteesForUser(req.identity.userRefId),
+      tasksRepository.getTaskStatusCountsForUser(req.identity.userRefId),
+    ]);
+
+    const committeeIds = (committees || []).map((c) => c.id);
+    const pendingAssignments = await assignmentsRepository.listPendingAssignmentsForUser(
+      req.identity.userRefId,
+      committeeIds
+    );
+
+    const totalAssignments = (pendingAssignments || []).length;
+    const submittedAssignments = (pendingAssignments || []).filter((a) => a.isSubmitted).length;
+    const gradedAssignments = (pendingAssignments || []).filter((a) => a.submissionGrade !== null && a.submissionGrade !== undefined).length;
+    const unsubmittedAssignments = totalAssignments - submittedAssignments;
+
+    const createdAt = userRef?.createdAt ? new Date(userRef.createdAt) : new Date();
+    const now = new Date();
+    const diffMs = Math.max(0, now.getTime() - createdAt.getTime());
+    const daysMember = Math.max(1, Math.ceil(diffMs / (1000 * 60 * 60 * 24)));
+
+    return res.status(200).json({
+      tasks: taskStats || { total: 0, todo: 0, inProgress: 0, done: 0, archived: 0 },
+      assignments: {
+        total: totalAssignments,
+        pending: unsubmittedAssignments,
+        submitted: submittedAssignments,
+        graded: gradedAssignments,
+      },
+      committeesCount: (committees || []).length,
+      daysMember,
+    });
+  } catch (error) {
+    return next(error);
+  }
+}
+
 async function updateMyProfile(req, res, next) {
   try {
     const { membershipId, membership_id, name } = req.body || {};
@@ -133,6 +205,8 @@ async function updateMyProfile(req, res, next) {
 
 module.exports = {
   getMyDashboard,
+  getMyStats,
+  getMyProfile,
   updateMyAvatar,
   updateMyProfile,
 };
