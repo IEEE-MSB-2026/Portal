@@ -83,6 +83,47 @@ async function listMembershipsByCommittee(committeeId) {
   }));
 }
 
+async function searchCommitteeMembers(committeeId, { search, id } = {}) {
+  const values = [committeeId];
+  let filterClause = '';
+  let idx = 2;
+
+  if (id) {
+    values.push(id);
+    filterClause += ` AND (u.id = $${idx}::uuid OR cm.id = $${idx}::uuid)`;
+    idx++;
+  } else if (search) {
+    values.push(`%${search.trim().toLowerCase()}%`);
+    filterClause += ` AND (LOWER(u.name) LIKE $${idx} OR LOWER(u.email) LIKE $${idx} OR LOWER(cm.role_in_committee::text) LIKE $${idx})`;
+    idx++;
+  }
+
+  const result = await query(
+    `
+      SELECT cm.id, cm.committee_id, cm.user_id, cm.role_in_committee, u.id AS external_user_id, u.name, u.email, u.avatar_url, u.membership_id
+      FROM committee_memberships cm
+      JOIN users u ON u.id = cm.user_id
+      WHERE cm.committee_id = $1
+      ${filterClause}
+      ORDER BY cm.role_in_committee DESC, u.name ASC
+    `,
+    values
+  );
+
+  return result.rows.map((row) => ({
+    id: row.id,
+    committeeId: row.committee_id,
+    userId: row.user_id,
+    userRefId: row.user_id,
+    externalUserId: row.external_user_id,
+    name: row.name,
+    email: row.email,
+    avatarUrl: row.avatar_url,
+    membershipId: row.membership_id,
+    roleInCommittee: row.role_in_committee,
+  }));
+}
+
 async function countLeadsInCommittee(committeeId) {
   const result = await query(
     `
@@ -100,5 +141,6 @@ module.exports = {
   countLeadsInCommittee,
   deleteMembership,
   listMembershipsByCommittee,
+  searchCommitteeMembers,
   upsertMembership,
 };

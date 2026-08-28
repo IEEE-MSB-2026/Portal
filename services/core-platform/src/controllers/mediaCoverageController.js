@@ -109,9 +109,12 @@ function buildCoverageTaskDescription(coverageRequest) {
     lines.push(`Details: ${coverageRequest.description}`);
   }
   if (coverageRequest.event_at) {
-    lines.push(`Event at: ${new Date(coverageRequest.event_at).toISOString()}`);
+    const d = new Date(coverageRequest.event_at);
+    const dateFormatted = Number.isNaN(d.getTime()) ? coverageRequest.event_at : d.toLocaleString();
+    lines.push(`Event at: ${dateFormatted}`);
   }
-  lines.push(`Requested by: ${coverageRequest.requested_by_external_user_id}`);
+  const requester = coverageRequest.requester_name || coverageRequest.requested_by_external_user_id || 'Committee Member';
+  lines.push(`Requested by: ${requester}`);
   return lines.join('\n');
 }
 

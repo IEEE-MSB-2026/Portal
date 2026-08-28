@@ -34,10 +34,15 @@ router.get('/committees/:committeeId/workspace', requireCommitteeScope('committe
 router.post('/committees/:committeeId/tasks', requireCommitteeScope('committeeId'), taskController.createTask);
 router.get('/committees/:committeeId/resources', requireCommitteeScope('committeeId'), resourceController.listCommitteeResources);
 router.post('/committees/:committeeId/resources', requireCommitteeScope('committeeId'), resourceController.createCommitteeResource);
+router.delete('/committees/:committeeId/resources/:resourceId', requireCommitteeScope('committeeId'), resourceController.deleteCommitteeResource);
 router.get('/committees/:committeeId/memberships', requireCommitteeScope('committeeId'), membershipController.listCommitteeMemberships);
+router.get('/committees/:committeeId/members', requireCommitteeScope('committeeId'), membershipController.searchCommitteeMembers);
 router.post('/committees/:committeeId/memberships', requireCommitteeScope('committeeId'), membershipController.upsertCommitteeMembership);
 router.delete('/committees/:committeeId/memberships/:userId', requireCommitteeScope('committeeId'), membershipController.removeCommitteeMembership);
+router.patch('/tasks/:taskId', taskController.updateTask);
 router.patch('/tasks/:taskId/status', taskController.updateTaskStatus);
+router.patch('/tasks/:taskId/archive', taskController.archiveTask);
+router.delete('/tasks/:taskId', taskController.deleteTask);
 router.post('/hr/campaigns', hrCampaignController.createCampaign);
 router.patch('/hr/campaigns/:campaignId/status', hrCampaignController.updateCampaignStatus);
 router.post('/hr/applications', hrApplicationController.createApplication);

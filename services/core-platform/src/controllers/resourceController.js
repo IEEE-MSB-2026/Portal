@@ -9,6 +9,9 @@ function parseResourceInput(body) {
   const title = typeof body.title === 'string' ? body.title.trim() : '';
   const url = typeof body.url === 'string' ? body.url.trim() : '';
   const description = typeof body.description === 'string' ? body.description.trim() : '';
+  const resourceType = typeof body.resourceType === 'string' && body.resourceType.trim()
+    ? body.resourceType.trim().toLowerCase()
+    : (typeof body.resource_type === 'string' && body.resource_type.trim() ? body.resource_type.trim().toLowerCase() : 'link');
 
   if (!title) throw new HttpError(400, 'title is required');
   if (!url) throw new HttpError(400, 'url is required');
@@ -27,6 +30,7 @@ function parseResourceInput(body) {
   return {
     title,
     url: parsed.toString(),
+    resourceType,
     description: description || null,
   };
 }
@@ -78,6 +82,7 @@ async function createCommitteeResource(req, res, next) {
       committeeId,
       title: payload.title,
       url: payload.url,
+      resourceType: payload.resourceType,
       description: payload.description,
       createdByUserRefId: req.identity.userRefId,
     });
@@ -88,18 +93,62 @@ async function createCommitteeResource(req, res, next) {
       committeeId,
       resourceId: resource.id,
       actorUserId: req.identity.externalUserId,
+      resourceType: resource.resourceType,
     });
 
     return res.status(201).json({
       resource: {
         id: resource.id,
-        committeeId: resource.committee_id,
+        committeeId: resource.committeeId,
         title: resource.title,
         url: resource.url,
+        resourceType: resource.resourceType,
         description: resource.description,
-        createdAt: resource.created_at,
+        createdAt: resource.createdAt,
       },
     });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+async function deleteCommitteeResource(req, res, next) {
+  try {
+    const { committeeId, resourceId } = req.params;
+    if (!isUuid(committeeId)) {
+      throw new HttpError(400, 'Invalid committeeId format');
+    }
+    if (!isUuid(resourceId)) {
+      throw new HttpError(400, 'Invalid resourceId format');
+    }
+
+    const committee = await committeesRepository.getCommitteeById(committeeId);
+    if (!committee) {
+      throw new HttpError(404, 'Committee not found');
+    }
+
+    const membershipRole = await authzService.getMembershipRoleForCommittee(req.identity, committeeId);
+    const canManage = authzService.canManageCommitteeContent({ identity: req.identity, membershipRole });
+    if (!canManage) {
+      throw new HttpError(403, 'Forbidden');
+    }
+
+    const existing = await resourcesRepository.getResourceById(resourceId);
+    if (!existing || existing.committeeId !== committeeId) {
+      throw new HttpError(404, 'Resource not found');
+    }
+
+    await resourcesRepository.deleteResource(resourceId, committeeId);
+
+    logger.info({
+      event: 'committee.resource.deleted',
+      requestId: req.requestId,
+      committeeId,
+      resourceId,
+      actorUserId: req.identity.externalUserId,
+    });
+
+    return res.status(200).json({ success: true, message: 'Resource deleted successfully' });
   } catch (error) {
     return next(error);
   }
@@ -108,4 +157,5 @@ async function createCommitteeResource(req, res, next) {
 module.exports = {
   createCommitteeResource,
   listCommitteeResources,
+  deleteCommitteeResource,
 };

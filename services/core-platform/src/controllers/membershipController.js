@@ -162,8 +162,36 @@ async function removeCommitteeMembership(req, res, next) {
   }
 }
 
+async function searchCommitteeMembers(req, res, next) {
+  try {
+    const committeeId = req.params.committeeId;
+    if (!isUuid(committeeId)) {
+      throw new HttpError(400, 'Invalid committeeId format');
+    }
+
+    const committee = await committeesRepository.getCommitteeById(committeeId);
+    if (!committee) {
+      throw new HttpError(404, 'Committee not found');
+    }
+
+    const canRead = await authzService.canReadCommittee(req.identity, committeeId);
+    if (!canRead) {
+      throw new HttpError(403, 'Forbidden');
+    }
+
+    const search = typeof req.query?.search === 'string' ? req.query.search : undefined;
+    const id = typeof req.query?.id === 'string' && isUuid(req.query.id) ? req.query.id : undefined;
+
+    const members = await membershipsRepository.searchCommitteeMembers(committeeId, { search, id });
+    return res.status(200).json({ members });
+  } catch (error) {
+    return next(error);
+  }
+}
+
 module.exports = {
   listCommitteeMemberships,
   removeCommitteeMembership,
+  searchCommitteeMembers,
   upsertCommitteeMembership,
 };

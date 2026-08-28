@@ -6,14 +6,16 @@ async function proxyToCore(req, res, next) {
   const identity = resolveIdentity(req);
   const rawTargetPath = req.originalUrl.replace('/api/core', '') || '/';
 
-  let normalizedPath = rawTargetPath;
-  if (rawTargetPath.startsWith('/public')) {
-    normalizedPath = rawTargetPath;
-  } else if (!rawTargetPath.startsWith('/core') && !rawTargetPath.startsWith('/public')) {
-    normalizedPath = `/core${rawTargetPath.startsWith('/') ? '' : '/'}${rawTargetPath}`;
+  const [pathOnly, queryString] = rawTargetPath.split('?');
+
+  let normalizedPath = pathOnly;
+  if (pathOnly.startsWith('/public')) {
+    normalizedPath = pathOnly;
+  } else if (!pathOnly.startsWith('/core') && !pathOnly.startsWith('/public')) {
+    normalizedPath = `/core${pathOnly.startsWith('/') ? '' : '/'}${pathOnly}`;
   }
 
-  const targetUrl = `${config.corePlatformUrl}${normalizedPath}`;
+  const targetUrl = `${config.corePlatformUrl}${normalizedPath}${queryString ? `?${queryString}` : ''}`;
   const signedHeaders = buildCoreGatewayHeaders(
     req.method,
     normalizedPath,
@@ -113,12 +115,12 @@ async function proxyToEvents(req, res, next) {
 
 async function proxyToFiles(req, res, next) {
   const identity = resolveIdentity(req);
-  const targetPath = req.originalUrl;
-  const targetUrl = `${config.fileServiceUrl}${targetPath}`;
+  const [pathOnly, queryString] = req.originalUrl.split('?');
+  const targetUrl = `${config.fileServiceUrl}${pathOnly}${queryString ? `?${queryString}` : ''}`;
 
   const signedHeaders = buildCoreGatewayHeaders(
     req.method,
-    targetPath,
+    pathOnly,
     identity,
     config.gatewaySharedSecret
   );

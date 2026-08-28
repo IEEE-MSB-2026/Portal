@@ -17,7 +17,8 @@ function verifyGatewaySignature(req, res, next) {
     req.identity = identity;
     return next();
   } catch (error) {
-    return res.status(401).json({ error: 'Unauthorized gateway request' });
+    console.error(`[Core-Platform Gateway Auth Error] ${req.method} ${req.originalUrl || req.path}: ${error.message}`);
+    return res.status(401).json({ error: 'Unauthorized gateway request', details: error.message });
   }
 }
 

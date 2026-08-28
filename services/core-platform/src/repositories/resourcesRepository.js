@@ -1,25 +1,52 @@
 const { randomUUID } = require('crypto');
 const { query } = require('../db/pool');
 
-async function createResource({ committeeId, title, url, description, createdByUserId, createdByUserRefId }) {
+async function createResource({
+  committeeId,
+  title,
+  url,
+  resourceType = 'link',
+  description,
+  createdByUserId,
+  createdByUserRefId,
+}) {
   const id = randomUUID();
   const targetCreatorId = createdByUserId || createdByUserRefId || null;
+  const targetResourceType = typeof resourceType === 'string' && resourceType.trim() ? resourceType.trim().toLowerCase() : 'link';
+
   const result = await query(
     `
-      INSERT INTO committee_resources (id, committee_id, title, url, description, created_by_user_id)
-      VALUES ($1, $2, $3, $4, $5, $6)
-      RETURNING id, committee_id, title, url, description, created_at
+      INSERT INTO committee_resources (
+        id,
+        committee_id,
+        title,
+        url,
+        resource_type,
+        description,
+        created_by_user_id
+      )
+      VALUES ($1, $2, $3, $4, $5, $6, $7)
+      RETURNING id, committee_id, title, url, resource_type, description, created_at
     `,
-    [id, committeeId, title, url, description || null, targetCreatorId]
+    [id, committeeId, title, url, targetResourceType, description || null, targetCreatorId]
   );
 
-  return result.rows[0];
+  const row = result.rows[0];
+  return {
+    id: row.id,
+    committeeId: row.committee_id,
+    title: row.title,
+    url: row.url,
+    resourceType: row.resource_type || 'link',
+    description: row.description,
+    createdAt: row.created_at,
+  };
 }
 
-async function listResourcesByCommittee(committeeId, { limit = 20 } = {}) {
+async function listResourcesByCommittee(committeeId, { limit = 50 } = {}) {
   const result = await query(
     `
-      SELECT id, committee_id, title, url, description, created_at
+      SELECT id, committee_id, title, url, resource_type, description, created_at
       FROM committee_resources
       WHERE committee_id = $1
       ORDER BY created_at DESC
@@ -33,12 +60,50 @@ async function listResourcesByCommittee(committeeId, { limit = 20 } = {}) {
     committeeId: row.committee_id,
     title: row.title,
     url: row.url,
+    resourceType: row.resource_type || 'link',
     description: row.description,
     createdAt: row.created_at,
   }));
 }
 
+async function getResourceById(resourceId) {
+  const result = await query(
+    `
+      SELECT id, committee_id, title, url, resource_type, description, created_at
+      FROM committee_resources
+      WHERE id = $1
+      LIMIT 1
+    `,
+    [resourceId]
+  );
+  if (!result.rows[0]) return null;
+  const row = result.rows[0];
+  return {
+    id: row.id,
+    committeeId: row.committee_id,
+    title: row.title,
+    url: row.url,
+    resourceType: row.resource_type || 'link',
+    description: row.description,
+    createdAt: row.created_at,
+  };
+}
+
+async function deleteResource(resourceId, committeeId) {
+  let queryText = `DELETE FROM committee_resources WHERE id = $1`;
+  const params = [resourceId];
+  if (committeeId) {
+    queryText += ` AND committee_id = $2`;
+    params.push(committeeId);
+  }
+  queryText += ` RETURNING id`;
+  const result = await query(queryText, params);
+  return result.rowCount > 0;
+}
+
 module.exports = {
   createResource,
   listResourcesByCommittee,
+  getResourceById,
+  deleteResource,
 };

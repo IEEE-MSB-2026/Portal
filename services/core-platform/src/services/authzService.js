@@ -27,6 +27,11 @@ function canAssignTask({ identity, membershipRole }) {
   return membershipRole === 'lead';
 }
 
+function canManageTask({ identity, membershipRole }) {
+  if (isGlobalAccess(identity)) return true;
+  return membershipRole === 'lead';
+}
+
 function canManageCommitteeContent({ identity, membershipRole }) {
   if (isGlobalAccess(identity)) return true;
   return membershipRole === 'lead';
@@ -162,6 +167,7 @@ async function listManageableMediaCommitteeIds(identity) {
 module.exports = {
   canAcceptHrApplication,
   canAssignTask,
+  canManageTask,
   canManageHrCommittee,
   canManageMediaCommittee,
   canManagePrCommittee,

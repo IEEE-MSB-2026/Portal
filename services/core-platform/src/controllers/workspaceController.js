@@ -25,13 +25,14 @@ async function getCommitteeWorkspace(req, res, next) {
 
     const membershipRole = await authzService.getMembershipRoleForCommittee(req.identity, committeeId);
 
-    const limit = parseLimit(req.query.limit, 20, 100);
+    const limit = parseLimit(req.query.limit, 50, 100);
     const cursor = decodeCursor(req.query.cursor);
+    const isArchived = req.query.isArchived === 'true' || req.query.archived === 'true';
 
     const [taskSummary, tasks, resources] = await Promise.all([
       tasksRepository.getCommitteeTaskSummary(committeeId),
-      tasksRepository.listCommitteeTasks(committeeId, { limit, cursor }),
-      resourcesRepository.listResourcesByCommittee(committeeId, { limit: 20 }),
+      tasksRepository.listCommitteeTasks(committeeId, { limit, cursor, isArchived }),
+      resourcesRepository.listResourcesByCommittee(committeeId, { limit: 50 }),
     ]);
 
     return res.status(200).json({

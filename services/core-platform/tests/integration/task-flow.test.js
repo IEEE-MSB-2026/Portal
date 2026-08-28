@@ -140,6 +140,20 @@ test('task status: member can move own task todo -> in_progress -> done', async 
     const secondPayload = await second.json();
     assert.equal(second.status, 200);
     assert.equal(secondPayload.task.status, 'done');
+
+    // Reopen task from done -> in_progress
+    const reopen = await fetch(`${getBaseUrl(server)}${patchPath}`, {
+      method: 'PATCH',
+      headers: {
+        ...headers,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({ status: 'in_progress' }),
+    });
+
+    const reopenPayload = await reopen.json();
+    assert.equal(reopen.status, 200);
+    assert.equal(reopenPayload.task.status, 'in_progress');
   } finally {
     await new Promise((resolve) => server.close(resolve));
   }
