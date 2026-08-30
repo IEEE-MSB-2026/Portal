@@ -13,9 +13,9 @@ const hrStageLogRepository = require('../repositories/hrStageLogRepository');
 const ALLOWED_STAGES = new Set(['applied', 'screening', 'interview', 'final_review', 'rejected', 'accepted']);
 const STAGE_TRANSITIONS = {
   applied: new Set(['screening']),
-  screening: new Set(['interview']),
-  interview: new Set(['final_review']),
-  final_review: new Set([]),
+  screening: new Set(['interview', 'applied']),
+  interview: new Set(['final_review', 'screening']),
+  final_review: new Set(['interview', 'screening']),
   rejected: new Set([]),
   accepted: new Set([]),
 };
@@ -27,20 +27,20 @@ const ONBOARDING_CHECKLIST_TEMPLATE = [
     sortOrder: 1,
   },
   {
-    templateKey: 'read_handbook',
-    title: 'Read committee handbook and policies',
+    templateKey: 'attend_intro',
+    title: 'Attend your first general meeting',
     sortOrder: 2,
   },
   {
-    templateKey: 'attend_intro',
-    title: 'Attend onboarding introduction meeting',
+    templateKey: 'introduce_yourself',
+    title: 'Introduce yourself to the committee',
     sortOrder: 3,
   },
   {
-    templateKey: 'complete_first_task',
-    title: 'Complete first committee task',
+    templateKey: 'read_handbook',
+    title: 'Read committee handbook and policies',
     sortOrder: 4,
-  },
+  }
 ];
 
 function isNowWithinCampaignWindow(campaign, now = new Date()) {
@@ -253,9 +253,16 @@ async function listApplications(req, res, next) {
       }
     }
 
+    const includeRejected = req.query.includeRejected === 'true' || req.query.rejected === 'true';
+    const includeAccepted = req.query.includeAccepted === 'true' || req.query.accepted === 'true';
+    const stageRaw = typeof req.query.stage === 'string' ? req.query.stage.trim() : '';
+
     const applications = await hrApplicationsRepository.listApplications({
       committeeId,
       campaignId: campaign ? campaign.id : null,
+      stage: stageRaw || null,
+      includeRejected,
+      includeAccepted,
       limit,
     });
 

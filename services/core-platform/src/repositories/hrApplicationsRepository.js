@@ -78,7 +78,7 @@ async function updateApplicationStage(applicationId, stage) {
   return result.rows[0] || null;
 }
 
-async function listApplications({ committeeId, campaignId, limit = 50 }) {
+async function listApplications({ committeeId, campaignId, stage, includeRejected = false, includeAccepted = false, limit = 50 }) {
   const values = [limit];
   const where = [];
 
@@ -89,6 +89,17 @@ async function listApplications({ committeeId, campaignId, limit = 50 }) {
   if (campaignId) {
     values.push(campaignId);
     where.push(`a.campaign_id = $${values.length}`);
+  }
+  if (stage) {
+    values.push(stage);
+    where.push(`a.current_stage = $${values.length}::hr_application_stage_type`);
+  } else {
+    if (!includeRejected) {
+      where.push(`a.current_stage != 'rejected'`);
+    }
+    if (!includeAccepted) {
+      where.push(`a.current_stage != 'accepted'`);
+    }
   }
 
   const whereClause = where.length ? `WHERE ${where.join(' AND ')}` : '';

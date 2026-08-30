@@ -120,11 +120,20 @@ function canManagePrCommittee({ identity, membershipRole, committeeId = null }) 
   return membershipRole === 'lead';
 }
 
+function canPromoteOrDemoteLead(identity) {
+  return isPrivilegedGlobalAccess(identity);
+}
+
 async function canAcceptHrApplication({ identity, membershipRole, governanceMode }) {
   if (governanceMode === 'mode_a') {
-    return canManageHrCommittee({ identity, membershipRole });
+    return (await canManageHrCommittee({ identity, membershipRole })) || (await isHrCommitteeLead(identity));
   }
 
+  if (governanceMode === 'mode_b') {
+    return isPrivilegedGlobalAccess(identity);
+  }
+
+  if (await isHrCommitteeLead(identity)) return true;
   return isPrivilegedGlobalAccess(identity);
 }
 
@@ -188,6 +197,7 @@ module.exports = {
   canManagePrCommittee,
   canManageCommitteeContent,
   canManageMemberships,
+  canPromoteOrDemoteLead,
   canPublishMediaAlbum,
   canReadCommittee,
   canSubmitHrApplication,

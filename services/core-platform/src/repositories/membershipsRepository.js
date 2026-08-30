@@ -137,9 +137,40 @@ async function countLeadsInCommittee(committeeId) {
   return result.rows[0]?.c || 0;
 }
 
+async function listAllMemberships() {
+  const result = await query(
+    `
+      SELECT cm.id, cm.committee_id, c.name AS committee_name, c.slug AS committee_slug,
+             cm.user_id, cm.role_in_committee, cm.created_at,
+             u.id AS external_user_id, u.name, u.email, u.avatar_url, u.membership_id
+      FROM committee_memberships cm
+      JOIN users u ON u.id = cm.user_id
+      JOIN committees c ON c.id = cm.committee_id
+      ORDER BY c.name ASC, cm.role_in_committee DESC, u.name ASC
+    `
+  );
+
+  return result.rows.map((row) => ({
+    id: row.id,
+    committeeId: row.committee_id,
+    committeeName: row.committee_name,
+    committeeSlug: row.committee_slug,
+    userId: row.user_id,
+    userRefId: row.user_id,
+    externalUserId: row.external_user_id,
+    name: row.name,
+    email: row.email,
+    avatarUrl: row.avatar_url,
+    membershipId: row.membership_id,
+    roleInCommittee: row.role_in_committee,
+    createdAt: row.created_at,
+  }));
+}
+
 module.exports = {
   countLeadsInCommittee,
   deleteMembership,
+  listAllMemberships,
   listMembershipsByCommittee,
   searchCommitteeMembers,
   upsertMembership,

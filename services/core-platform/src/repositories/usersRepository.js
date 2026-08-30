@@ -181,11 +181,40 @@ async function updateUserProfile(userId, { membershipId, name }) {
   }
 }
 
+async function searchUsers(searchTerm, limit = 20) {
+  if (!searchTerm || typeof searchTerm !== 'string') return [];
+  const term = `%${searchTerm.trim().toLowerCase()}%`;
+  const result = await query(
+    `
+      SELECT id, email, name, avatar_url, membership_id, default_role, default_scope_type, default_scope_id, created_at
+      FROM users
+      WHERE LOWER(name) LIKE $1 OR LOWER(email) LIKE $1
+      ORDER BY name ASC
+      LIMIT $2
+    `,
+    [term, limit]
+  );
+  return result.rows.map((row) => ({
+    id: row.id,
+    userId: row.id,
+    externalUserId: row.id,
+    email: row.email,
+    name: row.name,
+    avatarUrl: row.avatar_url || null,
+    membershipId: row.membership_id || null,
+    defaultRole: row.default_role,
+    defaultScopeType: row.default_scope_type,
+    defaultScopeId: row.default_scope_id,
+    createdAt: row.created_at || null,
+  }));
+}
+
 module.exports = {
   ensureUserRef,
   findByEmail,
   findByExternalUserId,
   findById,
+  searchUsers,
   updateUserAvatar,
   updateUserProfile,
 };

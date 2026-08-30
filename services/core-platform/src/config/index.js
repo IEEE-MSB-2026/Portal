@@ -97,7 +97,7 @@ const config = {
     serviceTimeoutMs: parsePositiveInteger('IAM_SERVICE_TIMEOUT_MS', 3000),
   },
   hr: {
-    acceptGovernanceMode: parseEnum('HR_ACCEPT_GOVERNANCE_MODE', ['mode_a', 'mode_b'], 'mode_b'),
+    acceptGovernanceMode: parseEnum('HR_ACCEPT_GOVERNANCE_MODE', ['mode_a', 'mode_b'], 'mode_a'),
   },
   pr: {
     campaignMaxRecipients: parsePositiveInteger('PR_CAMPAIGN_MAX_RECIPIENTS', 500),

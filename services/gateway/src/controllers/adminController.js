@@ -21,6 +21,26 @@ async function assignRole(req, res, next) {
   }
 }
 
+async function revokeRole(req, res, next) {
+  try {
+    const { userId, scopeType, scopeId } = req.body || {};
+    if (!userId) {
+      return res.status(400).json({ error: 'userId is required' });
+    }
+
+    await userRepository.revokeRole({
+      userId,
+      scopeType: scopeType || 'committee',
+      scopeId: scopeId || null,
+    });
+
+    return res.status(200).json({ status: 'ok', userId, scopeType, scopeId });
+  } catch (err) {
+    next(err);
+  }
+}
+
 module.exports = {
   assignRole,
+  revokeRole,
 };

@@ -40,10 +40,12 @@ router.get('/committees/:committeeId/resources', requireCommitteeScope('committe
 router.post('/committees/:committeeId/resources', requireCommitteeScope('committeeId'), resourceController.createCommitteeResource);
 router.patch('/committees/:committeeId/resources/:resourceId', requireCommitteeScope('committeeId'), resourceController.updateCommitteeResource);
 router.delete('/committees/:committeeId/resources/:resourceId', requireCommitteeScope('committeeId'), resourceController.deleteCommitteeResource);
-router.get('/committees/:committeeId/memberships', requireCommitteeScope('committeeId'), membershipController.listCommitteeMemberships);
-router.get('/committees/:committeeId/members', requireCommitteeScope('committeeId'), membershipController.searchCommitteeMembers);
-router.post('/committees/:committeeId/memberships', requireCommitteeScope('committeeId'), membershipController.upsertCommitteeMembership);
-router.delete('/committees/:committeeId/memberships/:userId', requireCommitteeScope('committeeId'), membershipController.removeCommitteeMembership);
+router.get('/committees/memberships/all', membershipController.listAllMemberships);
+router.get('/users/search', membershipController.searchRegisteredUsers);
+router.get('/committees/:committeeId/memberships', membershipController.listCommitteeMemberships);
+router.get('/committees/:committeeId/members', membershipController.searchCommitteeMembers);
+router.post('/committees/:committeeId/memberships', membershipController.upsertCommitteeMembership);
+router.delete('/committees/:committeeId/memberships/:userId', membershipController.removeCommitteeMembership);
 router.get('/committees/:committeeId/announcements', requireCommitteeScope('committeeId'), committeeAnnouncementController.listCommitteeAnnouncements);
 router.post('/committees/:committeeId/announcements', requireCommitteeScope('committeeId'), committeeAnnouncementController.createCommitteeAnnouncement);
 router.patch('/committees/:committeeId/announcements/:announcementId/pin', requireCommitteeScope('committeeId'), committeeAnnouncementController.updateCommitteeAnnouncementPin);

@@ -15,6 +15,16 @@ function getAssignRoleUrl() {
   return new URL('admin/roles/assign', baseUrl).toString();
 }
 
+function getRevokeRoleUrl() {
+  if (!iamConfig.serviceUrl) return null;
+
+  const baseUrl = iamConfig.serviceUrl.endsWith('/')
+    ? iamConfig.serviceUrl
+    : `${iamConfig.serviceUrl}/`;
+
+  return new URL('admin/roles/revoke', baseUrl).toString();
+}
+
 function isEnabled() {
   return Boolean(iamConfig.serviceUrl && iamConfig.serviceAuthToken);
 }
@@ -131,8 +141,59 @@ async function assignCommitteeMemberRole({
   }
 }
 
+async function syncRoleAssignment({ userId, role, scopeType = 'committee', scopeId = null }) {
+  const assignRoleUrl = getAssignRoleUrl();
+  if (!isEnabled() || !assignRoleUrl) return { ok: false, reason: 'not_configured' };
+
+  try {
+    const response = await fetch(assignRoleUrl, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-service-token': iamConfig.serviceAuthToken,
+      },
+      body: JSON.stringify({
+        userId,
+        role,
+        scopeType,
+        scopeId,
+      }),
+    });
+    return { ok: response.ok, statusCode: response.status };
+  } catch (err) {
+    logger.warn({ event: 'core.iam_sync.assign_failed', userId, role, scopeId, err: err.message });
+    return { ok: false, reason: err.message };
+  }
+}
+
+async function syncRoleRevocation({ userId, scopeType = 'committee', scopeId = null }) {
+  const revokeRoleUrl = getRevokeRoleUrl();
+  if (!isEnabled() || !revokeRoleUrl) return { ok: false, reason: 'not_configured' };
+
+  try {
+    const response = await fetch(revokeRoleUrl, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-service-token': iamConfig.serviceAuthToken,
+      },
+      body: JSON.stringify({
+        userId,
+        scopeType,
+        scopeId,
+      }),
+    });
+    return { ok: response.ok, statusCode: response.status };
+  } catch (err) {
+    logger.warn({ event: 'core.iam_sync.revoke_failed', userId, scopeId, err: err.message });
+    return { ok: false, reason: err.message };
+  }
+}
+
 module.exports = {
   assignCommitteeMemberRole,
+  syncRoleAssignment,
+  syncRoleRevocation,
   buildIdempotencyKey,
   isEnabled,
 };

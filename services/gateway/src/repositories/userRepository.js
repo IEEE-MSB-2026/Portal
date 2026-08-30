@@ -14,6 +14,38 @@ function buildScopeLabel(role, scopeType, committeeSlug) {
   return `${capitalize(role)} (${capitalize(scopeType)})`;
 }
 
+function formatAvailableScopes(rows) {
+  // Sort rows so that 'lead' comes before 'member' if both exist
+  const sorted = [...rows].sort((a, b) => {
+    if (a.role === 'lead' && b.role !== 'lead') return -1;
+    if (b.role === 'lead' && a.role !== 'lead') return 1;
+    return 0;
+  });
+
+  const scopeMap = new Map();
+  for (const r of sorted) {
+    const committeeId = r.committee_id || (r.scope_type === 'committee' ? r.scope_id : null);
+    const scopeKey = r.scope_type === 'committee'
+      ? `committee:${committeeId || r.scope_id}`
+      : `${r.scope_type}:${r.scope_id}:${r.role}`;
+
+    if (!scopeMap.has(scopeKey)) {
+      scopeMap.set(scopeKey, {
+        id: r.id,
+        role: r.role,
+        scopeType: r.scope_type,
+        scopeId: r.scope_id,
+        committeeId,
+        committeeSlug: r.committee_slug || null,
+        committeeName: r.committee_name || null,
+        label: buildScopeLabel(r.role, r.scope_type, r.committee_slug || r.committee_name),
+      });
+    }
+  }
+
+  return Array.from(scopeMap.values());
+}
+
 async function findByEmail(email) {
   if (!email || typeof email !== 'string') return null;
   const normalizedEmail = email.trim().toLowerCase();
@@ -51,16 +83,7 @@ async function findByEmail(email) {
     defaultRole: user.default_role,
     defaultScopeType: user.default_scope_type,
     defaultScopeId: user.default_scope_id,
-    availableScopes: rolesRes.rows.map((r) => ({
-      id: r.id,
-      role: r.role,
-      scopeType: r.scope_type,
-      scopeId: r.scope_id,
-      committeeId: r.committee_id,
-      committeeSlug: r.committee_slug || null,
-      committeeName: r.committee_name || null,
-      label: buildScopeLabel(r.role, r.scope_type, r.committee_slug || r.committee_name),
-    })),
+    availableScopes: formatAvailableScopes(rolesRes.rows),
   };
 }
 
@@ -117,16 +140,7 @@ async function findById(id) {
     defaultRole: user.default_role,
     defaultScopeType: user.default_scope_type,
     defaultScopeId: user.default_scope_id,
-    availableScopes: rolesRes.rows.map((r) => ({
-      id: r.id,
-      role: r.role,
-      scopeType: r.scope_type,
-      scopeId: r.scope_id,
-      committeeId: r.committee_id,
-      committeeSlug: r.committee_slug || null,
-      committeeName: r.committee_name || null,
-      label: buildScopeLabel(r.role, r.scope_type, r.committee_slug || r.committee_name),
-    })),
+    availableScopes: formatAvailableScopes(rolesRes.rows),
   };
 }
 
@@ -216,13 +230,57 @@ async function assignRole({ userId, role, scopeType = 'global', scopeId = 'globa
 
   const user = await findById(userId);
   const targetUserId = user ? user.id : userId;
+  const effectiveCommitteeId = scopeType === 'committee' ? (committeeId || scopeId) : null;
 
+  // 1. For committee scopes, deactivate any existing role in the same committee to prevent duplicate roles
+  if (scopeType === 'committee' && (scopeId || effectiveCommitteeId)) {
+    const targetScopeId = scopeId ? String(scopeId) : null;
+    const targetCommitteeId = effectiveCommitteeId ? String(effectiveCommitteeId) : null;
+    await pool.query(
+      `UPDATE auth_user_roles 
+       SET is_active = FALSE 
+       WHERE user_id = $1 
+         AND is_active = TRUE
+         AND (scope_type = 'committee' OR committee_id IS NOT NULL)
+         AND (scope_id = $2 OR committee_id::text = $2 OR scope_id = $3 OR committee_id::text = $3)`,
+      [targetUserId, targetScopeId, targetCommitteeId]
+    );
+  }
+
+  // 2. Insert or reactivate the target role
   await pool.query(
     `INSERT INTO auth_user_roles (id, user_id, role, scope_type, scope_id, committee_id, is_active)
      VALUES ($1, $2, $3, $4, $5, $6, TRUE)
-     ON CONFLICT (user_id, role, scope_type, scope_id) DO UPDATE SET is_active = TRUE`,
-    [roleId, targetUserId, role, scopeType, scopeId, committeeId]
+     ON CONFLICT (user_id, role, scope_type, scope_id) DO UPDATE SET is_active = TRUE, committee_id = EXCLUDED.committee_id`,
+    [roleId, targetUserId, role, scopeType, scopeId, effectiveCommitteeId]
   );
+  return true;
+}
+
+async function revokeRole({ userId, scopeType = 'committee', scopeId = null }) {
+  const pool = getPool();
+  if (!pool) {
+    throw new Error('Database connection pool is not available');
+  }
+
+  const user = await findById(userId);
+  const targetUserId = user ? user.id : userId;
+
+  if (scopeId) {
+    await pool.query(
+      `UPDATE auth_user_roles 
+       SET is_active = FALSE 
+       WHERE user_id = $1 AND ((scope_type = $2 AND scope_id = $3) OR committee_id::text = $3)`,
+      [targetUserId, scopeType, String(scopeId)]
+    );
+  } else {
+    await pool.query(
+      `UPDATE auth_user_roles 
+       SET is_active = FALSE 
+       WHERE user_id = $1 AND scope_type = $2`,
+      [targetUserId, scopeType]
+    );
+  }
   return true;
 }
 
@@ -248,6 +306,7 @@ async function updatePassword(userId, newPasswordHash) {
 
 module.exports = {
   assignRole,
+  revokeRole,
   create,
   findByEmail,
   findById,

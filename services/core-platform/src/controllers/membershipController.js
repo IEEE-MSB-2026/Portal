@@ -2,23 +2,23 @@ const logger = require('../utils/logger');
 const { HttpError } = require('../utils/httpErrors');
 const { isUuid } = require('../utils/ids');
 const committeesRepository = require('../repositories/committeesRepository');
-const usersRepository = require('../repositories/usersRepository');
 const membershipsRepository = require('../repositories/membershipsRepository');
+const usersRepository = require('../repositories/usersRepository');
 const authzService = require('../services/authzService');
+const iamRoleAssignmentService = require('../services/iamRoleAssignmentService');
+
+const ALLOWED_ROLES = new Set(['member', 'lead']);
 
 function parseMembershipInput(body) {
   const externalUserId = typeof body.externalUserId === 'string' ? body.externalUserId.trim() : '';
-  const email = typeof body.email === 'string' ? body.email.trim().toLowerCase() : '';
+  const email = typeof body.email === 'string' ? body.email.trim() : '';
   const roleInCommittee = typeof body.roleInCommittee === 'string' ? body.roleInCommittee.trim() : '';
 
-  if (!externalUserId) {
-    throw new HttpError(400, 'externalUserId is required');
+  if (!externalUserId && !email) {
+    throw new HttpError(400, 'externalUserId or email is required');
   }
-  if (!email) {
-    throw new HttpError(400, 'email is required');
-  }
-  if (!['member', 'lead'].includes(roleInCommittee)) {
-    throw new HttpError(400, 'roleInCommittee must be member or lead');
+  if (!ALLOWED_ROLES.has(roleInCommittee)) {
+    throw new HttpError(400, 'roleInCommittee must be one of member, lead');
   }
 
   return { externalUserId, email, roleInCommittee };
@@ -48,6 +48,39 @@ async function listCommitteeMemberships(req, res, next) {
   }
 }
 
+async function listAllMemberships(req, res, next) {
+  try {
+    const hasAccess = authzService.isPrivilegedGlobalAccess(req.identity) || await authzService.isHrCommitteeLead(req.identity);
+    if (!hasAccess) {
+      throw new HttpError(403, 'Forbidden');
+    }
+
+    const memberships = await membershipsRepository.listAllMemberships();
+    return res.status(200).json({ memberships });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+async function searchRegisteredUsers(req, res, next) {
+  try {
+    const hasAccess = authzService.isPrivilegedGlobalAccess(req.identity) || await authzService.isHrCommitteeLead(req.identity);
+    if (!hasAccess) {
+      throw new HttpError(403, 'Forbidden');
+    }
+
+    const queryTerm = typeof req.query.q === 'string' ? req.query.q.trim() : '';
+    if (!queryTerm) {
+      return res.status(200).json({ users: [] });
+    }
+
+    const users = await usersRepository.searchUsers(queryTerm, 20);
+    return res.status(200).json({ users });
+  } catch (error) {
+    return next(error);
+  }
+}
+
 async function upsertCommitteeMembership(req, res, next) {
   try {
     const committeeId = req.params.committeeId;
@@ -72,10 +105,26 @@ async function upsertCommitteeMembership(req, res, next) {
       email: payload.email,
     });
 
+    const memberships = await membershipsRepository.listMembershipsByCommittee(committeeId);
+    const existingMembership = memberships.find((m) => m.userRefId === userRef.id);
+
+    if (payload.roleInCommittee === 'lead' || (existingMembership && existingMembership.roleInCommittee === 'lead' && payload.roleInCommittee !== 'lead')) {
+      if (!authzService.canPromoteOrDemoteLead(req.identity)) {
+        throw new HttpError(403, 'Only administrators and officers can promote or demote committee leads');
+      }
+    }
+
     const membership = await membershipsRepository.upsertMembership({
       committeeId,
       userRefId: userRef.id,
       roleInCommittee: payload.roleInCommittee,
+    });
+
+    await iamRoleAssignmentService.syncRoleAssignment({
+      userId: payload.externalUserId || userRef.external_user_id || userRef.id,
+      role: payload.roleInCommittee,
+      scopeType: 'committee',
+      scopeId: committeeId,
     });
 
     logger.info({
@@ -135,11 +184,11 @@ async function removeCommitteeMembership(req, res, next) {
       throw new HttpError(404, 'Membership not found');
     }
 
-    if (targetMembership.roleInCommittee === 'lead' && req.identity.role !== 'admin') {
-      throw new HttpError(403, 'Only admin can remove committee lead');
-    }
-
     if (targetMembership.roleInCommittee === 'lead') {
+      if (!authzService.canPromoteOrDemoteLead(req.identity)) {
+        throw new HttpError(403, 'Only admin can remove committee lead');
+      }
+
       const leadCount = await membershipsRepository.countLeadsInCommittee(committeeId);
       if (leadCount <= 1) {
         throw new HttpError(400, 'Cannot remove the last committee lead');
@@ -147,6 +196,12 @@ async function removeCommitteeMembership(req, res, next) {
     }
 
     await membershipsRepository.deleteMembership({ committeeId, userRefId: targetUser.id });
+
+    await iamRoleAssignmentService.syncRoleRevocation({
+      userId: targetUser.external_user_id || externalUserId,
+      scopeType: 'committee',
+      scopeId: committeeId,
+    });
 
     logger.info({
       event: 'committee.membership.removed',
@@ -190,8 +245,10 @@ async function searchCommitteeMembers(req, res, next) {
 }
 
 module.exports = {
+  listAllMemberships,
   listCommitteeMemberships,
   removeCommitteeMembership,
   searchCommitteeMembers,
+  searchRegisteredUsers,
   upsertCommitteeMembership,
 };
