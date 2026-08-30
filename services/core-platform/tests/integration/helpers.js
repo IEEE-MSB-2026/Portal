@@ -5,7 +5,7 @@ function setupTestEnv() {
   process.env.NODE_ENV = 'test';
   process.env.CORE_USE_PGMEM = 'false';
   process.env.PORT = '5070';
-  process.env.DATABASE_URL = process.env.DATABASE_URL || 'postgres://postgres:password@localhost:5432/ieee_core';
+  process.env.DATABASE_URL = process.env.TEST_DATABASE_URL || process.env.DATABASE_URL_TEST || 'postgres://postgres:password@localhost:5432/ieee_core_test';
   process.env.CORE_GATEWAY_SHARED_SECRET = 'test-shared-secret';
   delete process.env.IAM_SERVICE_URL;
   delete process.env.IAM_SERVICE_AUTH_TOKEN;
@@ -55,15 +55,42 @@ const IDS = {
   },
 };
 
+async function ensureTestDatabaseExists(databaseUrl) {
+  const { Client } = require('pg');
+  try {
+    const parsed = new URL(databaseUrl);
+    const targetDb = parsed.pathname.replace(/^\//, '') || 'ieee_core_test';
+
+    const adminUrl = new URL(databaseUrl);
+    adminUrl.pathname = '/postgres';
+
+    const client = new Client({ connectionString: adminUrl.toString() });
+    try {
+      await client.connect();
+      const res = await client.query('SELECT 1 FROM pg_database WHERE datname = $1', [targetDb]);
+      if (res.rowCount === 0) {
+        await client.query(`CREATE DATABASE "${targetDb}"`);
+      }
+    } finally {
+      await client.end().catch(() => {});
+    }
+  } catch (err) {
+    // Continue if database already exists or fallback to direct pool connection
+  }
+}
+
 let bootstrapPromise;
 
 async function bootstrapTestDatabase() {
   if (!bootstrapPromise) {
-    bootstrapPromise = runMigrations({
-      pool: getPool(),
-      migrationsDir: path.join(__dirname, '../../migrations'),
-      logger: { info: () => {}, error: () => {} },
-    });
+    bootstrapPromise = (async () => {
+      await ensureTestDatabaseExists(process.env.DATABASE_URL);
+      return runMigrations({
+        pool: getPool(),
+        migrationsDir: path.join(__dirname, '../../migrations'),
+        logger: { info: () => {}, error: () => {} },
+      });
+    })();
   }
 
   await bootstrapPromise;

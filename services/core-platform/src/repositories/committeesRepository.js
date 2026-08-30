@@ -1,6 +1,11 @@
 const { query } = require('../db/pool');
 
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 async function getCommitteeById(committeeId) {
+  if (!committeeId || typeof committeeId !== 'string' || !UUID_REGEX.test(committeeId)) {
+    return null;
+  }
   const result = await query(
     'SELECT id, slug, name, is_active FROM committees WHERE id = $1',
     [committeeId]

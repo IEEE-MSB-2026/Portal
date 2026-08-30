@@ -37,8 +37,9 @@ function canManageCommitteeContent({ identity, membershipRole }) {
   return membershipRole === 'lead';
 }
 
-function canManageMemberships({ identity, membershipRole }) {
+async function canManageMemberships({ identity, membershipRole }) {
   if (isGlobalAccess(identity)) return true;
+  if (await isHrCommitteeLead(identity)) return true;
   return membershipRole === 'lead';
 }
 
@@ -86,8 +87,18 @@ async function canReadCommittee(identity, committeeId) {
   return Boolean(membershipRole);
 }
 
-function canManageHrCommittee({ identity, membershipRole }) {
+async function isHrCommitteeLead(identity) {
+  if (!identity) return false;
+  if (identity.scopeType === 'committee' && identity.scopeId && identity.role === 'lead') {
+    const committee = await committeesRepository.getCommitteeById(identity.scopeId);
+    return committee?.slug === 'hr';
+  }
+  return false;
+}
+
+async function canManageHrCommittee({ identity, membershipRole }) {
   if (isPrivilegedGlobalAccess(identity)) return true;
+  if (await isHrCommitteeLead(identity)) return true;
   return membershipRole === 'lead';
 }
 
@@ -109,7 +120,7 @@ function canManagePrCommittee({ identity, membershipRole, committeeId = null }) 
   return membershipRole === 'lead';
 }
 
-function canAcceptHrApplication({ identity, membershipRole, governanceMode }) {
+async function canAcceptHrApplication({ identity, membershipRole, governanceMode }) {
   if (governanceMode === 'mode_a') {
     return canManageHrCommittee({ identity, membershipRole });
   }
@@ -123,7 +134,7 @@ async function listManageableHrCommitteeIds(identity) {
 
   if (identity.scopeType === 'committee') {
     const membershipRole = await getMembershipRoleForCommittee(identity, identity.scopeId);
-    const canManage = canManageHrCommittee({ identity, membershipRole });
+    const canManage = await canManageHrCommittee({ identity, membershipRole });
     return canManage ? [identity.scopeId] : [];
   }
 
@@ -183,6 +194,7 @@ module.exports = {
   canUpdateTaskStatus,
   getMembershipRoleForCommittee,
   isGlobalAccess,
+  isHrCommitteeLead,
   isPrivilegedGlobalAccess,
   listManageableHrCommitteeIds,
   listManageableMediaCommitteeIds,

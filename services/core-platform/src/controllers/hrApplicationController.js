@@ -73,16 +73,20 @@ function toApplicationResponse(row) {
 
 function parseCreateInput(body) {
   const campaignId = typeof body.campaignId === 'string' ? body.campaignId.trim() : '';
+  const committeeId = typeof body.committeeId === 'string' ? body.committeeId.trim() : '';
   const answers = body.answers === undefined ? {} : body.answers;
 
   if (!isUuid(campaignId)) {
     throw new HttpError(400, 'campaignId is required and must be a valid UUID');
   }
+  if (committeeId && !isUuid(committeeId)) {
+    throw new HttpError(400, 'committeeId must be a valid UUID');
+  }
   if (answers === null || typeof answers !== 'object' || Array.isArray(answers)) {
     throw new HttpError(400, 'answers must be an object');
   }
 
-  return { campaignId, answers };
+  return { campaignId, committeeId: committeeId || null, answers };
 }
 
 function parseStageInput(body) {
@@ -102,14 +106,14 @@ function parseStageInput(body) {
     throw new HttpError(400, 'Use accept endpoint for accepted stage');
   }
 
-  if (score !== undefined && (!Number.isInteger(score) || score < 0 || score > 100)) {
+  if (score !== undefined && score !== null && (!Number.isInteger(Number(score)) || Number(score) < 0 || Number(score) > 100)) {
     throw new HttpError(400, 'score must be an integer between 0 and 100');
   }
 
   return {
     stage,
     notes: notes || null,
-    score: score === undefined ? null : score,
+    score: score === undefined || score === null ? null : Number(score),
   };
 }
 
@@ -130,7 +134,7 @@ function isDuplicateApplicationError(error) {
 
 async function ensureHrManageAccess(identity, committeeId) {
   const membershipRole = await authzService.getMembershipRoleForCommittee(identity, committeeId);
-  const canManage = authzService.canManageHrCommittee({ identity, membershipRole });
+  const canManage = await authzService.canManageHrCommittee({ identity, membershipRole });
   if (!canManage) {
     throw new HttpError(403, 'Forbidden');
   }
@@ -152,10 +156,19 @@ async function createApplication(req, res, next) {
       throw new HttpError(400, 'Campaign is not open for applications');
     }
 
+    let targetCommitteeId = payload.committeeId || campaign.committee_id;
+    if (payload.committeeId && campaign.committees?.length > 0) {
+      const validCommittee = campaign.committees.some((c) => c.id === payload.committeeId);
+      if (!validCommittee && campaign.committee_id !== payload.committeeId) {
+        throw new HttpError(400, 'Selected committee is not part of this recruitment campaign');
+      }
+    }
+
     let application;
     try {
       application = await hrApplicationsRepository.createApplication({
         campaignId: campaign.id,
+        committeeId: targetCommitteeId,
         applicantUserRefId: req.identity.userRefId,
         answers: payload.answers,
       });
@@ -180,7 +193,7 @@ async function createApplication(req, res, next) {
       requestId: req.requestId,
       applicationId: application.id,
       campaignId: campaign.id,
-      committeeId: campaign.committee_id,
+      committeeId: targetCommitteeId || campaign.committee_id,
       actorUserId: req.identity.externalUserId,
     });
 
@@ -233,8 +246,11 @@ async function listApplications(req, res, next) {
 
     if (committeeId) {
       await ensureHrManageAccess(req.identity, committeeId);
-    } else if (!authzService.isPrivilegedGlobalAccess(req.identity)) {
-      throw new HttpError(403, 'Forbidden');
+    } else {
+      const hasBranchAccess = authzService.isPrivilegedGlobalAccess(req.identity) || await authzService.isHrCommitteeLead(req.identity);
+      if (!hasBranchAccess) {
+        throw new HttpError(403, 'Forbidden');
+      }
     }
 
     const applications = await hrApplicationsRepository.listApplications({
@@ -323,7 +339,7 @@ async function acceptApplication(req, res, next) {
     }
 
     const membershipRole = await authzService.getMembershipRoleForCommittee(req.identity, application.committee_id);
-    const canAccept = authzService.canAcceptHrApplication({
+    const canAccept = await authzService.canAcceptHrApplication({
       identity: req.identity,
       membershipRole,
       governanceMode: config.hr.acceptGovernanceMode,

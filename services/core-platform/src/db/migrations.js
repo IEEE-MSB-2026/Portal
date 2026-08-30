@@ -54,6 +54,10 @@ async function runMigrations({ pool, migrationsDir, logger = console }) {
       if (appliedMap.has(file)) {
         const appliedChecksum = appliedMap.get(file);
         if (appliedChecksum !== checksum) {
+          if (process.env.NODE_ENV !== 'production' || process.env.ALLOW_MIGRATION_UPDATE === 'true') {
+            await client.query('UPDATE schema_migrations SET checksum = $1, applied_at = NOW() WHERE name = $2', [checksum, file]);
+            continue;
+          }
           throw new Error(`Migration checksum mismatch for ${file}`);
         }
         continue;

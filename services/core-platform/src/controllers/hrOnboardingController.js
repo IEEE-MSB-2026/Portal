@@ -38,12 +38,17 @@ function parseStatusInput(body) {
 
 async function listOnboardingByUser(req, res, next) {
   try {
-    const externalUserId = typeof req.params.userId === 'string' ? req.params.userId.trim() : '';
-    if (!externalUserId) {
+    const rawUserId = typeof req.params.userId === 'string' ? req.params.userId.trim() : '';
+    if (!rawUserId) {
       throw new HttpError(400, 'Invalid userId format');
     }
 
-    const targetUser = await usersRepository.findByExternalUserId(externalUserId);
+    let targetUser = null;
+    if (rawUserId === 'me') {
+      targetUser = await usersRepository.findById(req.identity.userRefId);
+    } else {
+      targetUser = await usersRepository.findByExternalUserId(rawUserId);
+    }
     if (!targetUser) {
       throw new HttpError(404, 'User not found');
     }
@@ -97,7 +102,7 @@ async function updateOnboardingItem(req, res, next) {
 
     if (!canUpdate) {
       const membershipRole = await authzService.getMembershipRoleForCommittee(req.identity, item.committee_id);
-      canUpdate = authzService.canManageHrCommittee({ identity: req.identity, membershipRole });
+      canUpdate = await authzService.canManageHrCommittee({ identity: req.identity, membershipRole });
     }
 
     if (!canUpdate) {

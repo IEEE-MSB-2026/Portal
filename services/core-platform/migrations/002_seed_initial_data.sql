@@ -70,7 +70,7 @@ INSERT INTO auth_user_roles (id, user_id, role, scope_type, scope_id, committee_
   ('c9999999-9999-4999-8999-222222222222', '11111111-0000-4000-8000-000000000009', 'member', 'global', 'global', NULL),
   ('caaaaaaa-aaaa-4aaa-8aaa-111111111111', '11111111-0000-4000-8000-000000000010', 'member', 'global', 'global', NULL),
   ('cbbbbbbb-bbbb-4bbb-8bbb-111111111111', '11111111-0000-4000-8000-000000000011', 'event_scanner', 'global', 'global', NULL)
-ON CONFLICT (user_id, role, scope_type, scope_id) DO NOTHING;
+ON CONFLICT (id) DO NOTHING;
 
 -- 5. Seed Initial Tasks
 INSERT INTO tasks (id, committee_id, title, description, status, created_by_user_id, assignee_user_id, due_date) VALUES

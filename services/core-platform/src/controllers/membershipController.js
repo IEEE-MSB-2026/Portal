@@ -36,7 +36,7 @@ async function listCommitteeMemberships(req, res, next) {
       throw new HttpError(404, 'Committee not found');
     }
 
-    const canRead = await authzService.canReadCommittee(req.identity, committeeId);
+    const canRead = (await authzService.canReadCommittee(req.identity, committeeId)) || (await authzService.isHrCommitteeLead(req.identity));
     if (!canRead) {
       throw new HttpError(403, 'Forbidden');
     }
@@ -61,7 +61,7 @@ async function upsertCommitteeMembership(req, res, next) {
     }
 
     const membershipRole = await authzService.getMembershipRoleForCommittee(req.identity, committeeId);
-    const canManage = authzService.canManageMemberships({ identity: req.identity, membershipRole });
+    const canManage = await authzService.canManageMemberships({ identity: req.identity, membershipRole });
     if (!canManage) {
       throw new HttpError(403, 'Forbidden');
     }
@@ -119,7 +119,7 @@ async function removeCommitteeMembership(req, res, next) {
     }
 
     const membershipRole = await authzService.getMembershipRoleForCommittee(req.identity, committeeId);
-    const canManage = authzService.canManageMemberships({ identity: req.identity, membershipRole });
+    const canManage = await authzService.canManageMemberships({ identity: req.identity, membershipRole });
     if (!canManage) {
       throw new HttpError(403, 'Forbidden');
     }
@@ -174,7 +174,7 @@ async function searchCommitteeMembers(req, res, next) {
       throw new HttpError(404, 'Committee not found');
     }
 
-    const canRead = await authzService.canReadCommittee(req.identity, committeeId);
+    const canRead = (await authzService.canReadCommittee(req.identity, committeeId)) || (await authzService.isHrCommitteeLead(req.identity));
     if (!canRead) {
       throw new HttpError(403, 'Forbidden');
     }

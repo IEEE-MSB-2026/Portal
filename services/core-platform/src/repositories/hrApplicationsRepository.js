@@ -17,7 +17,7 @@ function mapApplicationColumns(prefix = null) {
   `;
 }
 
-async function createApplication({ campaignId, applicantUserId, applicantUserRefId, answers }) {
+async function createApplication({ campaignId, committeeId, applicantUserId, applicantUserRefId, answers }) {
   const id = randomUUID();
   const applicantId = applicantUserId || applicantUserRefId;
 
@@ -26,14 +26,15 @@ async function createApplication({ campaignId, applicantUserId, applicantUserRef
       INSERT INTO hr_applications (
         id,
         campaign_id,
+        committee_id,
         applicant_user_id,
         answers
       )
-      VALUES ($1, $2, $3, $4::jsonb)
+      VALUES ($1, $2, $3, $4, $5::jsonb)
       RETURNING
         ${mapApplicationColumns()}
     `,
-    [id, campaignId, applicantId, JSON.stringify(answers || {})]
+    [id, campaignId, committeeId || null, applicantId, JSON.stringify(answers || {})]
   );
 
   return result.rows[0];
@@ -44,7 +45,7 @@ async function getApplicationById(applicationId) {
     `
       SELECT
         ${mapApplicationColumns('a')},
-        c.committee_id,
+        COALESCE(a.committee_id, c.committee_id) AS committee_id,
         c.title AS campaign_title,
         cc.name AS committee_name,
         u.id AS applicant_external_user_id,
@@ -52,7 +53,7 @@ async function getApplicationById(applicationId) {
         u.email AS applicant_email
       FROM hr_applications a
       JOIN hr_campaigns c ON c.id = a.campaign_id
-      JOIN committees cc ON cc.id = c.committee_id
+      JOIN committees cc ON cc.id = COALESCE(a.committee_id, c.committee_id)
       JOIN users u ON u.id = a.applicant_user_id
       WHERE a.id = $1
     `,
@@ -83,7 +84,7 @@ async function listApplications({ committeeId, campaignId, limit = 50 }) {
 
   if (committeeId) {
     values.push(committeeId);
-    where.push(`c.committee_id = $${values.length}`);
+    where.push(`(a.committee_id = $${values.length} OR (a.committee_id IS NULL AND c.committee_id = $${values.length}))`);
   }
   if (campaignId) {
     values.push(campaignId);
@@ -96,7 +97,7 @@ async function listApplications({ committeeId, campaignId, limit = 50 }) {
     `
       SELECT
         ${mapApplicationColumns('a')},
-        c.committee_id,
+        COALESCE(a.committee_id, c.committee_id) AS committee_id,
         c.title AS campaign_title,
         cc.name AS committee_name,
         u.id AS applicant_external_user_id,
@@ -104,7 +105,7 @@ async function listApplications({ committeeId, campaignId, limit = 50 }) {
         u.email AS applicant_email
       FROM hr_applications a
       JOIN hr_campaigns c ON c.id = a.campaign_id
-      JOIN committees cc ON cc.id = c.committee_id
+      JOIN committees cc ON cc.id = COALESCE(a.committee_id, c.committee_id)
       JOIN users u ON u.id = a.applicant_user_id
       ${whereClause}
       ORDER BY a.submitted_at DESC, a.id DESC
@@ -210,6 +211,16 @@ async function acceptApplicationWithChecklist({
       checklistItems,
       client,
     });
+
+    await client.query(
+      `
+        INSERT INTO committee_memberships (id, committee_id, user_id, role_in_committee)
+        VALUES ($1, $2, $3, 'member')
+        ON CONFLICT (committee_id, user_id)
+        DO NOTHING
+      `,
+      [randomUUID(), current.committee_id, current.applicant_user_id]
+    );
 
     await client.query('COMMIT');
 

@@ -69,12 +69,15 @@ async function resolveAuthorizedScope({ identity, scope }) {
 
   if (committeeId) {
     const membershipRole = await authzService.getMembershipRoleForCommittee(identity, committeeId);
-    const canManage = authzService.canManageHrCommittee({ identity, membershipRole });
+    const canManage = await authzService.canManageHrCommittee({ identity, membershipRole });
     if (!canManage) {
       throw new HttpError(403, 'Forbidden');
     }
-  } else if (!authzService.isPrivilegedGlobalAccess(identity)) {
-    throw new HttpError(403, 'Forbidden');
+  } else {
+    const hasBranchAccess = authzService.isPrivilegedGlobalAccess(identity) || await authzService.isHrCommitteeLead(identity);
+    if (!hasBranchAccess) {
+      throw new HttpError(403, 'Forbidden');
+    }
   }
 
   return { committeeId, campaignId };
