@@ -184,9 +184,9 @@ async function deleteCommitteeResource(req, res, next) {
     }
 
     const membershipRole = await authzService.getMembershipRoleForCommittee(req.identity, committeeId);
-    const canManage = authzService.canManageCommitteeContent({ identity: req.identity, membershipRole });
-    if (!canManage) {
-      throw new HttpError(403, 'Forbidden');
+    const canDelete = authzService.canDeleteCommitteeContent({ identity: req.identity, membershipRole });
+    if (!canDelete) {
+      throw new HttpError(403, 'Forbidden: Only committee lead can delete resources');
     }
 
     const existing = await resourcesRepository.getResourceById(resourceId);

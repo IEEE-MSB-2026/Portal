@@ -1,7 +1,7 @@
 const { randomUUID } = require('crypto');
 const { query } = require('../db/pool');
 
-const ALLOWED_ROLES = new Set(['member', 'lead']);
+const ALLOWED_ROLES = new Set(['member', 'lead', 'hr']);
 
 function assertRole(role) {
   if (!ALLOWED_ROLES.has(role)) {

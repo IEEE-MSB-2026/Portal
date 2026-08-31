@@ -7,7 +7,7 @@ const usersRepository = require('../repositories/usersRepository');
 const authzService = require('../services/authzService');
 const iamRoleAssignmentService = require('../services/iamRoleAssignmentService');
 
-const ALLOWED_ROLES = new Set(['member', 'lead']);
+const ALLOWED_ROLES = new Set(['member', 'lead', 'hr']);
 
 function parseMembershipInput(body) {
   const externalUserId = typeof body.externalUserId === 'string' ? body.externalUserId.trim() : '';
@@ -18,7 +18,7 @@ function parseMembershipInput(body) {
     throw new HttpError(400, 'externalUserId or email is required');
   }
   if (!ALLOWED_ROLES.has(roleInCommittee)) {
-    throw new HttpError(400, 'roleInCommittee must be one of member, lead');
+    throw new HttpError(400, 'roleInCommittee must be one of member, lead, hr');
   }
 
   return { externalUserId, email, roleInCommittee };
@@ -139,10 +139,10 @@ async function upsertCommitteeMembership(req, res, next) {
     return res.status(201).json({
       membership: {
         id: membership.id,
-        committeeId: membership.committee_id,
-        userRefId: membership.user_ref_id,
-        externalUserId: payload.externalUserId,
-        roleInCommittee: membership.role_in_committee,
+        committeeId: membership.committeeId,
+        userRefId: membership.userRefId,
+        externalUserId: payload.externalUserId || userRef.external_user_id || userRef.id,
+        roleInCommittee: membership.roleInCommittee,
       },
     });
   } catch (error) {

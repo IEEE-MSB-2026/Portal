@@ -15,7 +15,10 @@ const APPLICANT_ROLES = new Set([
 ]);
 
 function isPrivilegedGlobalAccess(identity) {
-  return identity.scopeType === 'global' && PRIVILEGED_GLOBAL_ROLES.has(identity.role);
+  if (!identity) return false;
+  if (identity.scopeType === 'global' && PRIVILEGED_GLOBAL_ROLES.has(identity.role)) return true;
+  if (PRIVILEGED_GLOBAL_ROLES.has(identity.userRef?.defaultRole) || PRIVILEGED_GLOBAL_ROLES.has(identity.role)) return true;
+  return false;
 }
 
 function isGlobalAccess(identity) {
@@ -33,6 +36,11 @@ function canManageTask({ identity, membershipRole }) {
 }
 
 function canManageCommitteeContent({ identity, membershipRole }) {
+  if (isGlobalAccess(identity)) return true;
+  return membershipRole === 'lead' || membershipRole === 'hr';
+}
+
+function canDeleteCommitteeContent({ identity, membershipRole }) {
   if (isGlobalAccess(identity)) return true;
   return membershipRole === 'lead';
 }
@@ -71,18 +79,25 @@ function canUpdateTaskStatus({ identity, membershipRole, task }) {
 async function getMembershipRoleForCommittee(identity, committeeId) {
   if (isPrivilegedGlobalAccess(identity)) return identity.role;
 
-  if (identity.scopeType === 'committee' && identity.scopeId !== committeeId) {
-    return null;
-  }
-
   if (identity.scopeType === 'committee' && identity.scopeId === committeeId && identity.role) {
     return identity.role;
   }
 
-  return committeesRepository.getMembershipRole(identity.userRefId, committeeId);
+  if (identity.userRefId) {
+    const role = await committeesRepository.getMembershipRole(identity.userRefId, committeeId);
+    if (role) return role;
+  }
+
+  if (await isHrCommitteeLead(identity)) {
+    return 'hr';
+  }
+
+  return null;
 }
 
 async function canReadCommittee(identity, committeeId) {
+  if (isPrivilegedGlobalAccess(identity)) return true;
+  if (await isHrCommitteeLead(identity)) return true;
   const membershipRole = await getMembershipRoleForCommittee(identity, committeeId);
   return Boolean(membershipRole);
 }
@@ -91,7 +106,14 @@ async function isHrCommitteeLead(identity) {
   if (!identity) return false;
   if (identity.scopeType === 'committee' && identity.scopeId && identity.role === 'lead') {
     const committee = await committeesRepository.getCommitteeById(identity.scopeId);
-    return committee?.slug === 'hr';
+    if (committee?.slug === 'hr') return true;
+  }
+  if (identity.userRefId) {
+    const hrCommittee = await committeesRepository.getCommitteeBySlug('hr');
+    if (hrCommittee) {
+      const role = await committeesRepository.getMembershipRole(identity.userRefId, hrCommittee.id);
+      if (role === 'lead') return true;
+    }
   }
   return false;
 }
@@ -196,6 +218,7 @@ module.exports = {
   canManageMediaCommittee,
   canManagePrCommittee,
   canManageCommitteeContent,
+  canDeleteCommitteeContent,
   canManageMemberships,
   canPromoteOrDemoteLead,
   canPublishMediaAlbum,

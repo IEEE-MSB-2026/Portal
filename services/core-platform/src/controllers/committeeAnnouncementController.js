@@ -84,7 +84,7 @@ async function deleteCommitteeAnnouncement(req, res, next) {
     }
 
     const membershipRole = await authzService.getMembershipRoleForCommittee(req.identity, committeeId);
-    if (!authzService.canManageCommitteeContent({ identity: req.identity, membershipRole })) {
+    if (!authzService.canDeleteCommitteeContent({ identity: req.identity, membershipRole })) {
       throw new HttpError(403, 'Only committee lead can delete announcements');
     }
 

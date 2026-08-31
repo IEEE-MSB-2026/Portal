@@ -20,6 +20,7 @@ const ALLOWED_ROLES = new Set([
   'officer',
   'lead',
   'member',
+  'hr',
   'editor',
   'publisher',
   'event_organizer',

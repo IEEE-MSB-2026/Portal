@@ -3,7 +3,7 @@
 
 -- 1. Custom Types
 DO $$ BEGIN
-  CREATE TYPE role_in_committee_type AS ENUM ('member', 'lead');
+  CREATE TYPE role_in_committee_type AS ENUM ('member', 'lead', 'hr');
 EXCEPTION WHEN duplicate_object THEN null; END $$;
 
 DO $$ BEGIN

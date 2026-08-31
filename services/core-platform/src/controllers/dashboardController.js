@@ -5,6 +5,7 @@ const taskActivityRepository = require('../repositories/taskActivityRepository')
 const prAnnouncementsRepository = require('../repositories/prAnnouncementsRepository');
 const committeeAnnouncementsRepository = require('../repositories/committeeAnnouncementsRepository');
 const assignmentsRepository = require('../repositories/assignmentsRepository');
+const authzService = require('../services/authzService');
 const { decodeCursor, parseLimit } = require('../utils/pagination');
 const { HttpError } = require('../utils/httpErrors');
 
@@ -25,8 +26,16 @@ async function getMyDashboard(req, res, next) {
     const limit = parseLimit(req.query.limit, 20, 100);
     const cursor = decodeCursor(req.query.cursor);
 
-    const [userRef, committees, assignedTasks, recentActivity, recentAnnouncements, taskStats] = await Promise.all([
-      usersRepository.findByExternalUserId(req.identity.externalUserId),
+    let userRef = req.identity.userRef;
+    if (!userRef) {
+      userRef = await usersRepository.findByExternalUserId(req.identity.externalUserId);
+    }
+
+    const isGlobalAdmin = req.identity.role === 'admin' || userRef?.defaultRole === 'admin';
+    const isOfficer = req.identity.role === 'officer' || userRef?.defaultRole === 'officer';
+    const isHRLead = await authzService.isHrCommitteeLead(req.identity);
+
+    let [directCommittees, assignedTasks, recentActivity, recentAnnouncements, taskStats] = await Promise.all([
       committeesRepository.listCommitteesForUser(req.identity.userRefId),
       tasksRepository.listAssignedTasks(req.identity.userRefId, { limit, cursor }),
       taskActivityRepository.listRecentActivityForUserCommittees(req.identity.userRefId, { limit: 20 }),
@@ -34,7 +43,34 @@ async function getMyDashboard(req, res, next) {
       tasksRepository.getTaskStatusCountsForUser(req.identity.userRefId),
     ]);
 
-    const committeeIds = (committees || []).map((c) => c.id);
+    let committees = directCommittees || [];
+
+    if (isGlobalAdmin || isOfficer || isHRLead) {
+      const allActiveCommittees = await committeesRepository.listPublicCommittees();
+      const directMembershipMap = new Map(committees.map((c) => [c.id, c]));
+
+      committees = allActiveCommittees.map((c) => {
+        const direct = directMembershipMap.get(c.id);
+        if (direct) {
+          return {
+            ...c,
+            roleInCommittee: direct.roleInCommittee,
+          };
+        }
+        if (isGlobalAdmin) {
+          return {
+            ...c,
+            roleInCommittee: 'admin',
+          };
+        }
+        return {
+          ...c,
+          roleInCommittee: 'hr',
+        };
+      });
+    }
+
+    const committeeIds = committees.map((c) => c.id);
 
     const [committeeAnnouncements, pendingAssignments] = await Promise.all([
       committeeAnnouncementsRepository.listAnnouncementsForCommittees(committeeIds, { limit: 10 }),

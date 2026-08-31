@@ -9,17 +9,20 @@ function capitalize(str) {
 
 function buildScopeLabel(role, scopeType, committeeSlug) {
   if (scopeType === 'committee') {
-    return `${capitalize(role)} - ${committeeSlug ? committeeSlug.toUpperCase() : 'Committee'}`;
+    const roleLabel = role === 'hr' ? 'HR' : capitalize(role);
+    return `${roleLabel} - ${committeeSlug ? committeeSlug.toUpperCase() : 'Committee'}`;
   }
-  return `${capitalize(role)} (${capitalize(scopeType)})`;
+  const roleLabel = role === 'hr' ? 'HR' : capitalize(role);
+  return `${roleLabel} (${capitalize(scopeType)})`;
 }
 
 function formatAvailableScopes(rows) {
-  // Sort rows so that 'lead' comes before 'member' if both exist
+  // Sort rows so that 'lead' comes before 'member' and 'member' before 'hr' if both exist
+  const roleRank = { lead: 1, member: 2, hr: 3 };
   const sorted = [...rows].sort((a, b) => {
-    if (a.role === 'lead' && b.role !== 'lead') return -1;
-    if (b.role === 'lead' && a.role !== 'lead') return 1;
-    return 0;
+    const rankA = roleRank[a.role] || 99;
+    const rankB = roleRank[b.role] || 99;
+    return rankA - rankB;
   });
 
   const scopeMap = new Map();
