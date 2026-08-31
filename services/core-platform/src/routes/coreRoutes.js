@@ -83,8 +83,16 @@ router.patch('/pr/announcements/:announcementId/pin', prAnnouncementController.u
 router.delete('/pr/announcements/:announcementId', prAnnouncementController.deleteAnnouncement);
 router.post('/pr/campaigns', prCampaignController.createCampaign);
 router.get('/pr/campaigns', prCampaignController.listCampaigns);
+router.post('/pr/campaigns/recipients-preview', prCampaignController.previewRecipients);
+router.put('/pr/campaigns/:campaignId', prCampaignController.updateCampaign);
+router.patch('/pr/campaigns/:campaignId', prCampaignController.updateCampaign);
+router.delete('/pr/campaigns/:campaignId', prCampaignController.deleteCampaign);
+router.post('/pr/campaigns/:campaignId/archive', prCampaignController.archiveCampaign);
+router.post('/pr/campaigns/:campaignId/unarchive', prCampaignController.unarchiveCampaign);
+router.post('/pr/campaigns/:campaignId/duplicate', prCampaignController.duplicateCampaign);
 router.post('/pr/campaigns/:campaignId/send', prCampaignController.sendCampaign);
 router.get('/pr/campaigns/:campaignId/delivery', prCampaignController.getCampaignDelivery);
+router.get('/pr/campaigns/:campaignId/delivery-logs', prCampaignController.getCampaignDelivery);
 router.post('/media/albums', mediaAlbumController.createAlbum);
 router.get('/media/albums', mediaAlbumController.listAlbums);
 router.post('/media/albums/:albumId/assets', mediaAlbumController.addAlbumAsset);

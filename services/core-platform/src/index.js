@@ -17,17 +17,21 @@ async function initDatabase() {
   }
 }
 
+const { startCampaignScheduler, stopCampaignScheduler } = require('./schedulers/campaignScheduler');
+
 async function start() {
   let server;
   try {
     await initDatabase();
     server = app.listen(config.port, () => {
       logger.info({ port: config.port }, 'Core platform service listening');
+      startCampaignScheduler();
     });
 
     // Graceful shutdown handler
     const handleShutdown = async (signal) => {
       logger.info({ signal }, 'Shutting down core-platform gracefully...');
+      stopCampaignScheduler();
       if (server) {
         await new Promise((resolve) => server.close(resolve));
         logger.info('HTTP server closed.');

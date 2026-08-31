@@ -83,8 +83,9 @@ async function getMembershipRoleForCommittee(identity, committeeId) {
     return identity.role;
   }
 
-  if (identity.userRefId) {
-    const role = await committeesRepository.getMembershipRole(identity.userRefId, committeeId);
+  const currentUserId = identity?.userRefId || identity?.userId || identity?.externalUserId;
+  if (currentUserId) {
+    const role = await committeesRepository.getMembershipRole(currentUserId, committeeId);
     if (role) return role;
   }
 
@@ -108,10 +109,11 @@ async function isHrCommitteeLead(identity) {
     const committee = await committeesRepository.getCommitteeById(identity.scopeId);
     if (committee?.slug === 'hr') return true;
   }
-  if (identity.userRefId) {
+  const currentUserId = identity?.userRefId || identity?.userId || identity?.externalUserId;
+  if (currentUserId) {
     const hrCommittee = await committeesRepository.getCommitteeBySlug('hr');
     if (hrCommittee) {
-      const role = await committeesRepository.getMembershipRole(identity.userRefId, hrCommittee.id);
+      const role = await committeesRepository.getMembershipRole(currentUserId, hrCommittee.id);
       if (role === 'lead') return true;
     }
   }
@@ -161,7 +163,8 @@ async function canAcceptHrApplication({ identity, membershipRole, governanceMode
 
 async function listManageableHrCommitteeIds(identity) {
   if (isPrivilegedGlobalAccess(identity)) return null;
-  if (!identity?.userRefId) return [];
+  const currentUserId = identity?.userRefId || identity?.userId || identity?.externalUserId;
+  if (!currentUserId) return [];
 
   if (identity.scopeType === 'committee') {
     const membershipRole = await getMembershipRoleForCommittee(identity, identity.scopeId);
@@ -169,7 +172,7 @@ async function listManageableHrCommitteeIds(identity) {
     return canManage ? [identity.scopeId] : [];
   }
 
-  return committeesRepository.listCommitteeIdsForUserRole(identity.userRefId, 'lead');
+  return committeesRepository.listCommitteeIdsForUserRole(currentUserId, 'lead');
 }
 
 async function listManageablePrCommitteeIds(identity) {
@@ -180,7 +183,8 @@ async function listManageablePrCommitteeIds(identity) {
     if (identity.scopeType === 'committee') return [identity.scopeId];
   }
 
-  if (!identity?.userRefId) return [];
+  const currentUserId = identity?.userRefId || identity?.userId || identity?.externalUserId;
+  if (!currentUserId) return [];
 
   if (identity.scopeType === 'committee') {
     const membershipRole = await getMembershipRoleForCommittee(identity, identity.scopeId);
@@ -192,7 +196,7 @@ async function listManageablePrCommitteeIds(identity) {
     return canManage ? [identity.scopeId] : [];
   }
 
-  return committeesRepository.listCommitteeIdsForUserRole(identity.userRefId, 'lead');
+  return committeesRepository.listCommitteeIdsForUserRole(currentUserId, 'lead');
 }
 
 function canManageMediaCommittee({ identity, membershipRole, committeeId = null }) {

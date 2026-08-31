@@ -64,7 +64,14 @@ async function listAllMemberships(req, res, next) {
 
 async function searchRegisteredUsers(req, res, next) {
   try {
-    const hasAccess = authzService.isPrivilegedGlobalAccess(req.identity) || await authzService.isHrCommitteeLead(req.identity);
+    const manageablePrCommittees = await authzService.listManageablePrCommitteeIds(req.identity);
+    const hasAccess =
+      authzService.isPrivilegedGlobalAccess(req.identity) ||
+      (await authzService.isHrCommitteeLead(req.identity)) ||
+      req.identity?.role === 'publisher' ||
+      (Array.isArray(manageablePrCommittees) && manageablePrCommittees.length > 0) ||
+      manageablePrCommittees === null;
+
     if (!hasAccess) {
       throw new HttpError(403, 'Forbidden');
     }

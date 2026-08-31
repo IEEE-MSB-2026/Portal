@@ -107,8 +107,8 @@ function buildPrCampaignText({
   return lines.join('\n');
 }
 
-function buildPayload({ recipientEmail, subject, text, eventType, idempotencyKey }) {
-  return {
+function buildPayload({ recipientEmail, subject, text, html = null, eventType, idempotencyKey }) {
+  const payload = {
     schemaVersion: '1.0',
     correlationId: randomUUID(),
     idempotencyKey,
@@ -118,6 +118,10 @@ function buildPayload({ recipientEmail, subject, text, eventType, idempotencyKey
     text,
     createdAt: new Date().toISOString(),
   };
+  if (html) {
+    payload.html = html;
+  }
+  return payload;
 }
 
 async function postEmail(payload, context) {
@@ -387,6 +391,7 @@ async function sendPrCampaignDispatchNotifications({
   subject,
   campaignBody,
   recipientEmails,
+  recipients: richRecipients = null,
 }) {
   if (!isEnabled()) {
     return {
@@ -400,21 +405,44 @@ async function sendPrCampaignDispatchNotifications({
     };
   }
 
-  const recipients = [];
+  const items = [];
   const seen = new Set();
   let invalidRecipientCount = 0;
-  for (const candidate of recipientEmails || []) {
-    const normalized = normalizeEmail(candidate);
+
+  const rawList = Array.isArray(richRecipients) && richRecipients.length > 0
+    ? richRecipients
+    : (recipientEmails || []);
+
+  for (const candidate of rawList) {
+    const emailRaw = typeof candidate === 'string' ? candidate : candidate?.email;
+    const normalized = normalizeEmail(emailRaw);
     if (!normalized) {
       invalidRecipientCount += 1;
       continue;
     }
     if (seen.has(normalized)) continue;
     seen.add(normalized);
-    recipients.push(normalized);
+
+    if (typeof candidate === 'object' && candidate !== null) {
+      items.push({
+        ...candidate,
+        email: normalized,
+        subject: candidate.subject || subject,
+        text: candidate.text || buildPrCampaignText({ campaignTitle, campaignBody }),
+        html: candidate.html || null,
+      });
+    } else {
+      items.push({
+        email: normalized,
+        name: 'Member',
+        subject,
+        text: buildPrCampaignText({ campaignTitle, campaignBody }),
+        html: null,
+      });
+    }
   }
 
-  if (!recipients.length) {
+  if (!items.length) {
     logger.warn({
       event: 'core.email_notification.skipped',
       requestId,
@@ -445,27 +473,37 @@ async function sendPrCampaignDispatchNotifications({
     }, 'Some PR campaign recipients were skipped because of invalid email addresses');
   }
 
-  const results = await Promise.all(recipients.map(async (recipientEmail) => {
-    const payload = buildPayload({
-      recipientEmail,
-      subject,
-      text: buildPrCampaignText({
-        campaignTitle,
-        campaignBody,
-      }),
-      eventType: 'core.pr.campaign.dispatched',
-      idempotencyKey: `core-pr-campaign:${campaignId}:${recipientEmail}`,
-    });
+  // Non-blocking rate-limited dispatch loop (chunks of 25)
+  const CHUNK_SIZE = 25;
+  const results = [];
+  for (let i = 0; i < items.length; i += CHUNK_SIZE) {
+    const chunk = items.slice(i, i + CHUNK_SIZE);
+    const chunkResults = await Promise.all(chunk.map(async (item) => {
+      const payload = buildPayload({
+        recipientEmail: item.email,
+        subject: item.subject,
+        text: item.text,
+        html: item.html,
+        eventType: 'core.pr.campaign.dispatched',
+        idempotencyKey: `core-pr-campaign:${campaignId}:${item.email}`,
+      });
 
-    const result = await postEmail(payload, {
-      requestId,
-      route,
-      notificationType: 'pr_campaign',
-      recipientEmail,
-    });
+      const result = await postEmail(payload, {
+        requestId,
+        route,
+        notificationType: 'pr_campaign',
+        recipientEmail: item.email,
+      });
 
-    return { ...result, recipientEmail };
-  }));
+      return {
+        ...result,
+        recipientEmail: item.email,
+        name: item.name || 'Member',
+        sentAt: new Date().toISOString(),
+      };
+    }));
+    results.push(...chunkResults);
+  }
 
   const sentCount = results.filter((result) => result.ok).length;
   const failedCount = results.length - sentCount;
