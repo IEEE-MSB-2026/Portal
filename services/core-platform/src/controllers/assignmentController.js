@@ -268,8 +268,13 @@ async function gradeAssignmentSubmission(req, res, next) {
     const feedback = typeof req.body?.feedback === 'string' ? req.body.feedback.trim() : null;
     const status = req.body?.status || 'graded';
 
-    if (Number.isNaN(grade)) {
-      throw new HttpError(400, 'grade must be a number');
+    if (Number.isNaN(grade) || grade < 0) {
+      throw new HttpError(400, 'grade must be a non-negative number');
+    }
+
+    const maxPoints = assignment.max_points !== undefined ? assignment.max_points : assignment.maxPoints !== undefined ? assignment.maxPoints : 100;
+    if (grade > maxPoints) {
+      throw new HttpError(400, `grade cannot exceed max points (${maxPoints})`);
     }
 
     const updated = await assignmentsRepository.gradeSubmission({

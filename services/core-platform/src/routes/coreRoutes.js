@@ -79,6 +79,7 @@ router.get('/hr/reports/pipeline-timeline', hrReportsController.getPipelineTimel
 router.post('/pr/announcements', prAnnouncementController.createAnnouncement);
 router.get('/pr/announcements', prAnnouncementController.listAnnouncements);
 router.patch('/pr/announcements/:announcementId', prAnnouncementController.updateAnnouncement);
+router.patch('/pr/announcements/:announcementId/pin', prAnnouncementController.updateAnnouncement);
 router.delete('/pr/announcements/:announcementId', prAnnouncementController.deleteAnnouncement);
 router.post('/pr/campaigns', prCampaignController.createCampaign);
 router.get('/pr/campaigns', prCampaignController.listCampaigns);

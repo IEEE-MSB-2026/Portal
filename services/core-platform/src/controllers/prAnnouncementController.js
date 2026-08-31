@@ -59,13 +59,10 @@ function parseCreateInput(body) {
   if (!title) {
     throw new HttpError(400, 'title is required');
   }
-  if (!announcementBody) {
-    throw new HttpError(400, 'body is required');
-  }
 
   return {
     title,
-    body: announcementBody,
+    body: announcementBody || '',
     category,
     imageUrl: imageUrl || null,
     isPinned,
@@ -76,7 +73,7 @@ function parseCreateInput(body) {
 
 function parseUpdateInput(body) {
   const title = typeof body?.title === 'string' ? body.title.trim() : null;
-  const announcementBody = typeof body?.body === 'string' ? body.body.trim() : null;
+  const announcementBody = typeof body?.body === 'string' ? body.body.trim() : (body?.body === null || body?.body === '' ? '' : null);
   const category = typeof body?.category === 'string' ? body.category.trim() : null;
   const imageUrl = typeof body?.imageUrl === 'string' ? body.imageUrl.trim() : (body?.imageUrl === null ? null : undefined);
   const isPinned = body?.isPinned !== undefined ? Boolean(body.isPinned) : undefined;
@@ -85,9 +82,6 @@ function parseUpdateInput(body) {
 
   if (title !== null && !title) {
     throw new HttpError(400, 'title must not be empty');
-  }
-  if (announcementBody !== null && !announcementBody) {
-    throw new HttpError(400, 'body must not be empty');
   }
   if (
     title === null &&
@@ -325,10 +319,31 @@ async function listPublicAnnouncements(req, res, next) {
     const limit = parseLimit(req.query?.limit, 50, 100);
     const offset = Math.max(0, Number.parseInt(req.query?.offset, 10) || 0);
 
+    const userRole = req.headers['x-user-role'] || req.identity?.role;
+    const scopeType = req.headers['x-scope-type'] || req.identity?.scopeType;
+    const hasCommittee = Boolean(req.headers['x-committee-id'] || req.identity?.committeeId);
+
+    const isTeamMember =
+      scopeType === 'committee' ||
+      scopeType === 'global' ||
+      hasCommittee ||
+      ['admin', 'officer', 'lead', 'member', 'hr', 'publisher'].includes(userRole);
+
+    let visibility = 'public';
+    if (isTeamMember) {
+      if (req.query?.visibility === 'internal') {
+        visibility = 'internal';
+      } else if (req.query?.visibility === 'public') {
+        visibility = 'public';
+      } else {
+        visibility = null; // returns both public and internal
+      }
+    }
+
     const announcements = await prAnnouncementsRepository.listAnnouncements({
       category,
       search,
-      visibility: 'public',
+      visibility,
       includeDeleted: false,
       limit,
       offset,

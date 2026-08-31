@@ -337,7 +337,9 @@ async function listPendingAssignmentsForUser(userId, committeeIds = []) {
       FROM committee_assignments ca
       JOIN committees c ON c.id = ca.committee_id
       LEFT JOIN assignment_submissions sub ON sub.assignment_id = ca.id AND sub.user_id = $1
-      WHERE ca.committee_id = ANY($2) AND ca.is_active = TRUE
+      WHERE ca.committee_id = ANY($2)
+        AND ca.is_active = TRUE
+        AND (ca.due_date IS NULL OR ca.due_date::date >= CURRENT_DATE OR ca.due_date >= NOW())
       ORDER BY ca.due_date ASC NULLS LAST, ca.created_at DESC
       LIMIT 20
     `,

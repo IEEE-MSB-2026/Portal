@@ -22,6 +22,7 @@ const coreRoutesCatalog = [
   { method: 'POST', path: '/core/pr/announcements', description: 'Create PR announcement' },
   { method: 'GET', path: '/core/pr/announcements', description: 'List PR announcements (protected)' },
   { method: 'PATCH', path: '/core/pr/announcements/:announcementId', description: 'Update PR announcement' },
+  { method: 'PATCH', path: '/core/pr/announcements/:announcementId/pin', description: 'Toggle pin PR announcement' },
   { method: 'DELETE', path: '/core/pr/announcements/:announcementId', description: 'Delete PR announcement' },
   { method: 'POST', path: '/core/pr/campaigns', description: 'Create PR campaign' },
   { method: 'GET', path: '/core/pr/campaigns', description: 'List PR campaigns' },
