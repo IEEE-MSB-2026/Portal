@@ -59,6 +59,13 @@ CREATE TABLE IF NOT EXISTS users (
   default_role TEXT NOT NULL DEFAULT 'member',
   default_scope_type TEXT NOT NULL DEFAULT 'global',
   default_scope_id TEXT NOT NULL DEFAULT 'global',
+  bio TEXT,
+  university TEXT,
+  faculty TEXT,
+  department TEXT,
+  academic_year TEXT,
+  phone TEXT,
+  social_links JSONB NOT NULL DEFAULT '{}'::jsonb,
   is_active BOOLEAN NOT NULL DEFAULT TRUE,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()

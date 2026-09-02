@@ -12,10 +12,10 @@ const hrStageLogRepository = require('../repositories/hrStageLogRepository');
 
 const ALLOWED_STAGES = new Set(['applied', 'screening', 'interview', 'final_review', 'rejected', 'accepted']);
 const STAGE_TRANSITIONS = {
-  applied: new Set(['screening']),
-  screening: new Set(['interview', 'applied']),
-  interview: new Set(['final_review', 'screening']),
-  final_review: new Set(['interview', 'screening']),
+  applied: new Set(['screening', 'interview', 'final_review']),
+  screening: new Set(['interview', 'final_review', 'applied']),
+  interview: new Set(['final_review', 'applied', 'screening']),
+  final_review: new Set(['applied', 'screening', 'interview']),
   rejected: new Set([]),
   accepted: new Set([]),
 };
@@ -68,6 +68,7 @@ function toApplicationResponse(row) {
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     campaignTitle: row.campaign_title,
+    committeeName: row.committee_name,
   };
 }
 
@@ -497,10 +498,27 @@ async function rejectApplication(req, res, next) {
   }
 }
 
+async function listMyApplications(req, res, next) {
+  try {
+    const applicantUserId = req.identity?.userRefId || req.identity?.userId || req.identity?.sub || req.identity?.externalUserId;
+    if (!applicantUserId) {
+      throw new HttpError(401, 'Unauthorized');
+    }
+
+    const applications = await hrApplicationsRepository.listApplicationsByApplicant(applicantUserId);
+    return res.status(200).json({
+      applications: applications.map((row) => toApplicationResponse(row)),
+    });
+  } catch (error) {
+    return next(error);
+  }
+}
+
 module.exports = {
   acceptApplication,
   createApplication,
   listApplications,
+  listMyApplications,
   rejectApplication,
   updateApplicationStage,
 };

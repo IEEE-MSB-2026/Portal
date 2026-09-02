@@ -405,7 +405,7 @@ test('hr stage updates: invalid transition is rejected', async () => {
         ...stageHeaders,
         'content-type': 'application/json',
       },
-      body: JSON.stringify({ stage: 'final_review' }),
+      body: JSON.stringify({ stage: 'applied' }),
     });
     const payload = await response.json();
 
@@ -572,6 +572,67 @@ test('authorization regression: global officer can manage HR, global member cann
       headers: globalMemberCommitteeHeaders,
     });
     assert.equal(forbiddenCommitteeRead.status, 403);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test('my applications: member can list own submitted applications via GET /core/me/applications', async () => {
+  await prepareDatabase();
+  const server = await createServer(app);
+
+  try {
+    const createResult = await createCampaign({
+      server,
+      userId: 'officer-1',
+      userEmail: 'officer@ieee.local',
+      userRole: 'officer',
+      scopeType: 'global',
+      scopeId: 'global',
+      body: {
+        title: 'Spring Member Drive',
+        committeeIds: [IDS.committees.web],
+        description: 'Join Web committee',
+        opensAt: '2026-01-01T00:00:00.000Z',
+        closesAt: '2026-12-31T00:00:00.000Z',
+        status: 'open',
+      },
+    });
+
+    await submitApplication({
+      server,
+      userId: 'member-ai-1',
+      userEmail: 'member.ai@ieee.local',
+      userRole: 'member',
+      scopeType: 'committee',
+      scopeId: IDS.committees.ai,
+      body: {
+        campaignId: createResult.payload.campaign.id,
+        answers: { portfolio: 'https://github.com/member' },
+      },
+    });
+
+    const myAppsPath = '/core/me/applications';
+    const myAppsHeaders = signedHeaders({
+      method: 'GET',
+      path: myAppsPath,
+      userId: 'member-ai-1',
+      userEmail: 'member.ai@ieee.local',
+      userRole: 'member',
+      scopeType: 'committee',
+      scopeId: IDS.committees.ai,
+    });
+
+    const response = await fetch(`${getBaseUrl(server)}${myAppsPath}`, {
+      method: 'GET',
+      headers: myAppsHeaders,
+    });
+    const payload = await response.json();
+
+    assert.equal(response.status, 200);
+    assert.ok(Array.isArray(payload.applications));
+    assert.equal(payload.applications.length, 1);
+    assert.equal(payload.applications[0].campaignTitle, 'Spring Member Drive');
   } finally {
     await new Promise((resolve) => server.close(resolve));
   }

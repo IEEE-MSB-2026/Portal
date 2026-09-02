@@ -16,6 +16,7 @@ const prCampaignController = require('../controllers/prCampaignController');
 const mediaAlbumController = require('../controllers/mediaAlbumController');
 const mediaCoverageController = require('../controllers/mediaCoverageController');
 const officerAdminController = require('../controllers/officerAdminController');
+const userProfileController = require('../controllers/userProfileController');
 const routesController = require('../controllers/routesController');
 const { attachUserRef, requireCommitteeScope, verifyGatewaySignature } = require('../middlewares/gatewayAuth');
 const { validateFiles } = require('../middlewares/validateFiles');
@@ -28,7 +29,10 @@ router.use(attachUserRef);
 router.get('/me/dashboard', dashboardController.getMyDashboard);
 router.get('/me/stats', dashboardController.getMyStats);
 router.get('/me/profile', dashboardController.getMyProfile);
-router.patch('/me/profile', dashboardController.updateMyProfile);
+router.get('/me/applications', hrApplicationController.listMyApplications);
+router.patch('/me/profile', userProfileController.updateMyPublicProfile);
+router.patch('/me/public-profile', userProfileController.updateMyPublicProfile);
+router.get('/users/:userId/profile', userProfileController.getUserProfile);
 router.patch(
   '/me/avatar',
   validateFiles({ required: ['avatar'], maxCount: 1, allowed: ['avatar'], checkDatabase: true }),

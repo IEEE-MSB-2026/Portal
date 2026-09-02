@@ -251,10 +251,35 @@ async function acceptApplicationWithChecklist({
   }
 }
 
+async function listApplicationsByApplicant(applicantUserId) {
+  const result = await query(
+    `
+      SELECT
+        ${mapApplicationColumns('a')},
+        COALESCE(a.committee_id, c.committee_id) AS committee_id,
+        c.title AS campaign_title,
+        cc.name AS committee_name,
+        u.id AS applicant_external_user_id,
+        u.name AS applicant_name,
+        u.email AS applicant_email
+      FROM hr_applications a
+      JOIN hr_campaigns c ON c.id = a.campaign_id
+      JOIN committees cc ON cc.id = COALESCE(a.committee_id, c.committee_id)
+      JOIN users u ON u.id = a.applicant_user_id
+      WHERE a.applicant_user_id = $1
+      ORDER BY a.submitted_at DESC, a.id DESC
+    `,
+    [applicantUserId]
+  );
+
+  return result.rows;
+}
+
 module.exports = {
   acceptApplicationWithChecklist,
   createApplication,
   getApplicationById,
   listApplications,
+  listApplicationsByApplicant,
   updateApplicationStage,
 };
