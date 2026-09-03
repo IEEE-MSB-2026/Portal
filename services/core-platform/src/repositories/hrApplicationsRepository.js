@@ -7,6 +7,7 @@ function mapApplicationColumns(prefix = null) {
   return `
     ${q}id,
     ${q}campaign_id,
+    ${q}committee_id,
     ${q}applicant_user_id,
     ${q}applicant_user_id AS applicant_user_ref_id,
     ${q}answers,
@@ -135,7 +136,8 @@ async function acceptApplicationWithChecklist({
   actorUserId,
   actorUserRefId,
   notes,
-  checklistItems,
+  checklistItems = [],
+  createChecklist = false,
 }) {
   const actorId = actorUserId || actorUserRefId;
   const pool = getPool();
@@ -216,14 +218,17 @@ async function acceptApplicationWithChecklist({
       ]
     );
 
-    const createdChecklistItems = await hrOnboardingRepository.createChecklistItems({
-      applicationId,
-      committeeId: current.committee_id,
-      assigneeUserId: current.applicant_user_id,
-      createdByUserRefId: actorId,
-      checklistItems,
-      client,
-    });
+    let createdChecklistItems = [];
+    if (createChecklist && Array.isArray(checklistItems) && checklistItems.length > 0) {
+      createdChecklistItems = await hrOnboardingRepository.createChecklistItems({
+        applicationId,
+        committeeId: current.committee_id,
+        assigneeUserId: current.applicant_user_id,
+        createdByUserRefId: actorId,
+        checklistItems,
+        client,
+      });
+    }
 
     await client.query(
       `
@@ -374,22 +379,63 @@ async function listOnboardingCandidates({
   };
 }
 
-async function markWelcomeEmailsSent(applicationIds = []) {
+async function markWelcomeEmailsSent(applicationIds = [], { checklistItems = [], actorUserRefId = null } = {}) {
   if (!Array.isArray(applicationIds) || applicationIds.length === 0) return [];
-  const result = await query(
-    `
-      UPDATE hr_applications
-      SET
-        welcome_email_sent = TRUE,
-        welcome_email_sent_at = NOW(),
-        updated_at = NOW()
-      WHERE id = ANY($1::uuid[])
-      RETURNING
-        ${mapApplicationColumns()}
-    `,
-    [applicationIds]
-  );
-  return result.rows;
+  const pool = getPool();
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    const updateResult = await client.query(
+      `
+        UPDATE hr_applications
+        SET
+          welcome_email_sent = TRUE,
+          welcome_email_sent_at = NOW(),
+          updated_at = NOW()
+        WHERE id = ANY($1::uuid[])
+        RETURNING
+          ${mapApplicationColumns()}
+      `,
+      [applicationIds]
+    );
+
+    if (Array.isArray(checklistItems) && checklistItems.length > 0) {
+      const appsResult = await client.query(
+        `
+          SELECT
+            a.id,
+            COALESCE(a.committee_id, c.committee_id) AS committee_id,
+            a.applicant_user_id
+          FROM hr_applications a
+          LEFT JOIN hr_campaigns c ON c.id = a.campaign_id
+          WHERE a.id = ANY($1::uuid[])
+        `,
+        [applicationIds]
+      );
+
+      for (const app of appsResult.rows) {
+        if (app.applicant_user_id && app.committee_id) {
+          await hrOnboardingRepository.createChecklistItems({
+            applicationId: app.id,
+            committeeId: app.committee_id,
+            assigneeUserId: app.applicant_user_id,
+            createdByUserRefId: actorUserRefId,
+            checklistItems,
+            client,
+          });
+        }
+      }
+    }
+
+    await client.query('COMMIT');
+    return updateResult.rows;
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
 }
 
 module.exports = {

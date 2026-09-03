@@ -33,12 +33,53 @@ describe('Cloudinary File Service Tests', () => {
     const body = await res.json();
     assert.ok(Array.isArray(body.allowedFolders));
     assert.ok(body.allowedFolders.includes('media_albums'));
+    assert.ok(body.allowedFolders.includes('brand_kit'));
     assert.ok(body.allowedFolders.includes('resources'));
     assert.ok(body.allowedFolders.includes('avatars'));
     assert.ok(body.allowedFolders.includes('applications'));
     assert.equal(body.creditSavingPolicy.autoFormat, true);
     assert.equal(body.creditSavingPolicy.autoQuality, true);
     assert.equal(body.creditSavingPolicy.maxImageSizeMb, 5);
+  });
+
+  test('POST /api/files/signature normalizes event_albums alias to media_albums', async () => {
+    const res = await fetch(`${baseUrl}/api/files/signature`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-user-id': 'admin-1',
+        'x-user-role': 'admin',
+      },
+      body: JSON.stringify({
+        folder: 'event_albums',
+        resourceType: 'image',
+      }),
+    });
+
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.success, true);
+    assert.equal(body.folder, 'ieee_portal/media_albums');
+  });
+
+  test('POST /api/files/signature supports brand_kit folder', async () => {
+    const res = await fetch(`${baseUrl}/api/files/signature`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-user-id': 'admin-1',
+        'x-user-role': 'admin',
+      },
+      body: JSON.stringify({
+        folder: 'brand_kit',
+        resourceType: 'raw',
+      }),
+    });
+
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.success, true);
+    assert.equal(body.folder, 'ieee_portal/brand_kit');
   });
 
   test('POST /api/files/signature generates signed parameters with auto credit-saving transforms', async () => {

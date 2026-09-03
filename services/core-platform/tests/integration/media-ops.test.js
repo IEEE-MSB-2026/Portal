@@ -337,3 +337,301 @@ test('media coverage: accepted status creates exactly one linked task and is ide
     }
   );
 });
+
+test('media studio: stats, album lifecycle (update, asset delete, unpublish, delete) and brand assets CRUD', async () => {
+  await prepareDatabase();
+
+  await withEnv(
+    {
+      MEDIA_COMMITTEE_ID: IDS.committees.hr,
+    },
+    async () => {
+      const app = loadFreshApp();
+      const server = await createServer(app);
+
+      try {
+        // 1. Check media stats endpoint
+        const statsHeaders = signedCoreHeaders({
+          method: 'GET',
+          path: '/core/media/stats',
+          actor: ACTORS.leadHr,
+        });
+        const initialStats = await requestJson(server, {
+          method: 'GET',
+          path: '/core/media/stats',
+          headers: statsHeaders,
+        });
+        assert.equal(initialStats.response.status, 200);
+        assert.ok(typeof initialStats.payload.totalAlbums === 'number');
+        assert.ok(typeof initialStats.payload.totalAssets === 'number');
+
+        // 2. Create album with rich metadata (eventDate, category, tags)
+        const createAlbumHeaders = signedCoreHeaders({
+          method: 'POST',
+          path: '/core/media/albums',
+          actor: ACTORS.leadHr,
+        });
+        const created = await requestJson(server, {
+          method: 'POST',
+          path: '/core/media/albums',
+          headers: createAlbumHeaders,
+          body: {
+            committeeId: IDS.committees.hr,
+            title: 'Annual Gala 2026',
+            description: 'Celebration photos and videos',
+            category: 'Ceremony',
+            eventDate: '2026-05-15',
+            tags: ['gala', 'awards', '2026'],
+            assets: [
+              { assetUrl: 'https://cdn.example.com/media/gala1.jpg', assetType: 'image', caption: 'Stage opening' },
+              { assetUrl: 'https://cdn.example.com/media/gala2.jpg', assetType: 'image', caption: 'Award winners' },
+            ],
+          },
+        });
+        assert.equal(created.response.status, 201);
+        const album = created.payload.album;
+        assert.equal(album.title, 'Annual Gala 2026');
+        assert.equal(album.category, 'Ceremony');
+        assert.deepEqual(album.tags, ['gala', 'awards', '2026']);
+        assert.equal(album.assetsCount, 2);
+        assert.equal(album.assets.length, 2);
+
+        const asset1Id = album.assets[0].id;
+        const asset2Id = album.assets[1].id;
+
+        // 3. Update album metadata
+        const updateHeaders = signedCoreHeaders({
+          method: 'PATCH',
+          path: `/core/media/albums/${album.id}`,
+          actor: ACTORS.leadHr,
+        });
+        const updated = await requestJson(server, {
+          method: 'PATCH',
+          path: `/core/media/albums/${album.id}`,
+          headers: updateHeaders,
+          body: {
+            title: 'Annual Gala 2026 - Official',
+            category: 'Annual Event',
+            tags: ['gala', 'official'],
+          },
+        });
+        assert.equal(updated.response.status, 200);
+        assert.equal(updated.payload.album.title, 'Annual Gala 2026 - Official');
+        assert.equal(updated.payload.album.category, 'Annual Event');
+        assert.deepEqual(updated.payload.album.tags, ['gala', 'official']);
+
+        // 4. Delete an asset from album
+        const deleteAssetHeaders = signedCoreHeaders({
+          method: 'DELETE',
+          path: `/core/media/albums/${album.id}/assets/${asset2Id}`,
+          actor: ACTORS.leadHr,
+        });
+        const deletedAssetRes = await requestJson(server, {
+          method: 'DELETE',
+          path: `/core/media/albums/${album.id}/assets/${asset2Id}`,
+          headers: deleteAssetHeaders,
+        });
+        assert.equal(deletedAssetRes.response.status, 200);
+
+        // Verify remaining asset count is 1
+        const getAlbumRes = await requestJson(server, {
+          method: 'GET',
+          path: `/core/media/albums/${album.id}`,
+          headers: signedCoreHeaders({
+            method: 'GET',
+            path: `/core/media/albums/${album.id}`,
+            actor: ACTORS.leadHr,
+          }),
+        });
+        assert.equal(getAlbumRes.response.status, 200);
+        assert.equal(getAlbumRes.payload.album.assetsCount, 1);
+        assert.equal(getAlbumRes.payload.album.assets[0].id, asset1Id);
+
+        // 5. Publish album
+        const publishRes = await requestJson(server, {
+          method: 'POST',
+          path: `/core/media/albums/${album.id}/publish`,
+          headers: signedCoreHeaders({
+            method: 'POST',
+            path: `/core/media/albums/${album.id}/publish`,
+            actor: ACTORS.publisherGlobal,
+          }),
+        });
+        assert.equal(publishRes.response.status, 200);
+        assert.equal(publishRes.payload.album.status, 'published');
+
+        // 6. Unpublish album
+        const unpublishRes = await requestJson(server, {
+          method: 'POST',
+          path: `/core/media/albums/${album.id}/unpublish`,
+          headers: signedCoreHeaders({
+            method: 'POST',
+            path: `/core/media/albums/${album.id}/unpublish`,
+            actor: ACTORS.publisherGlobal,
+          }),
+        });
+        assert.equal(unpublishRes.response.status, 200);
+        assert.equal(unpublishRes.payload.album.status, 'draft');
+
+        // 7. Brand Assets: Create, List, Update, Delete
+        const createBrandHeader = signedCoreHeaders({
+          method: 'POST',
+          path: '/core/media/brand-assets',
+          actor: ACTORS.leadHr,
+        });
+        const brandCreated = await requestJson(server, {
+          method: 'POST',
+          path: '/core/media/brand-assets',
+          headers: createBrandHeader,
+          body: {
+            title: 'IEEE MSB Dark Logo Vector',
+            category: 'Logos',
+            fileUrl: 'https://cdn.example.com/brand/logo-dark.svg',
+            fileType: 'svg',
+            fileSizeBytes: 24500,
+            dimensions: '800x600',
+            description: 'Primary vector logo with dark gradient',
+            tags: ['logo', 'vector', 'dark'],
+          },
+        });
+        assert.equal(brandCreated.response.status, 201);
+        const brandAssetId = brandCreated.payload.asset.id;
+        assert.equal(brandCreated.payload.asset.title, 'IEEE MSB Dark Logo Vector');
+        assert.equal(brandCreated.payload.asset.category, 'logos');
+        assert.deepEqual(brandCreated.payload.asset.tags, ['logo', 'vector', 'dark']);
+
+        // List brand assets with filter
+        const brandList = await requestJson(server, {
+          method: 'GET',
+          path: '/core/media/brand-assets?category=logos',
+          headers: signedCoreHeaders({
+            method: 'GET',
+            path: '/core/media/brand-assets',
+            actor: ACTORS.leadHr,
+          }),
+        });
+        assert.equal(brandList.response.status, 200);
+        assert.ok(brandList.payload.assets.length >= 1);
+        assert.equal(brandList.payload.assets[0].category, 'logos');
+
+        // Update brand asset
+        const updateBrand = await requestJson(server, {
+          method: 'PATCH',
+          path: `/core/media/brand-assets/${brandAssetId}`,
+          headers: signedCoreHeaders({
+            method: 'PATCH',
+            path: `/core/media/brand-assets/${brandAssetId}`,
+            actor: ACTORS.leadHr,
+          }),
+          body: {
+            title: 'IEEE MSB Dark Logo Vector (Updated)',
+          },
+        });
+        assert.equal(updateBrand.response.status, 200);
+        assert.equal(updateBrand.payload.asset.title, 'IEEE MSB Dark Logo Vector (Updated)');
+
+        // Delete brand asset
+        const deleteBrand = await requestJson(server, {
+          method: 'DELETE',
+          path: `/core/media/brand-assets/${brandAssetId}`,
+          headers: signedCoreHeaders({
+            method: 'DELETE',
+            path: `/core/media/brand-assets/${brandAssetId}`,
+            actor: ACTORS.leadHr,
+          }),
+        });
+        assert.equal(deleteBrand.response.status, 200);
+
+        // 8. Delete album
+        const deleteAlbumRes = await requestJson(server, {
+          method: 'DELETE',
+          path: `/core/media/albums/${album.id}`,
+          headers: signedCoreHeaders({
+            method: 'DELETE',
+            path: `/core/media/albums/${album.id}`,
+            actor: ACTORS.leadHr,
+          }),
+        });
+        assert.equal(deleteAlbumRes.response.status, 200);
+        assert.equal(deleteAlbumRes.payload.success, true);
+      } finally {
+        await new Promise((resolve) => server.close(resolve));
+      }
+    }
+  );
+});
+
+test('media albums: support branch-wide albums with optional committeeId', async () => {
+  await prepareDatabase();
+
+  await withEnv(
+    {
+      MEDIA_COMMITTEE_ID: IDS.committees.hr,
+    },
+    async () => {
+      const app = loadFreshApp();
+      const server = await createServer(app);
+
+      try {
+        // Create branch-wide album without committeeId
+        const createRes = await requestJson(server, {
+          method: 'POST',
+          path: '/core/media/albums',
+          headers: signedCoreHeaders({
+            method: 'POST',
+            path: '/core/media/albums',
+            actor: ACTORS.publisherGlobal,
+          }),
+          body: {
+            title: 'IEEE Annual Gala 2026',
+            description: 'Branch-wide annual gala celebration',
+            category: 'Celebration',
+            tags: ['gala', 'branch_wide', 'celebration'],
+            assets: [
+              {
+                assetUrl: 'https://res.cloudinary.com/demo/image/upload/v1/gala-1.jpg',
+                assetType: 'image',
+                caption: 'Opening ceremony',
+              },
+            ],
+          },
+        });
+
+        assert.equal(createRes.response.status, 201);
+        const album = createRes.payload.album;
+        assert.equal(album.title, 'IEEE Annual Gala 2026');
+        assert.equal(album.committeeId, null);
+        assert.equal(album.committeeName, null);
+        assert.equal(album.category, 'Celebration');
+        assert.equal(album.assetsCount, 1);
+
+        // Publish the branch-wide album
+        const publishRes = await requestJson(server, {
+          method: 'POST',
+          path: `/core/media/albums/${album.id}/publish`,
+          headers: signedCoreHeaders({
+            method: 'POST',
+            path: `/core/media/albums/${album.id}/publish`,
+            actor: ACTORS.publisherGlobal,
+          }),
+        });
+        assert.equal(publishRes.response.status, 200);
+        assert.equal(publishRes.payload.album.status, 'published');
+
+        // Check public albums endpoint returns the branch-wide album
+        const publicRes = await requestJson(server, {
+          method: 'GET',
+          path: '/public/media/albums',
+        });
+        assert.equal(publicRes.response.status, 200);
+        const publicAlbum = publicRes.payload.albums.find((a) => a.id === album.id);
+        assert.ok(publicAlbum);
+        assert.equal(publicAlbum.committeeId, null);
+        assert.equal(publicAlbum.title, 'IEEE Annual Gala 2026');
+      } finally {
+        await new Promise((resolve) => server.close(resolve));
+      }
+    }
+  );
+});
+

@@ -9,6 +9,9 @@ function mapAlbumColumns(prefix = 'a') {
     ${prefix}.description,
     ${prefix}.cover_image_url,
     ${prefix}.status,
+    ${prefix}.event_date,
+    ${prefix}.category,
+    ${prefix}.tags,
     ${prefix}.published_at,
     ${prefix}.created_by_user_id,
     ${prefix}.created_by_user_id AS created_by_user_ref_id,
@@ -23,9 +26,11 @@ function mapAlbumSelect(prefix = 'a') {
   return `
     ${mapAlbumColumns(prefix)},
     c.name AS committee_name,
+    c.slug AS committee_slug,
     creator.id AS created_by_external_user_id,
     creator.name AS created_by_name,
-    updater.id AS updated_by_external_user_id
+    updater.id AS updated_by_external_user_id,
+    updater.name AS updated_by_name
   `;
 }
 
@@ -37,7 +42,7 @@ async function countAlbumAssets(albumId) {
   return result.rows[0]?.count || 0;
 }
 
-async function listAlbumAssets(albumId, { limit = 200 } = {}) {
+async function listAlbumAssets(albumId, { limit = 300 } = {}) {
   const result = await query(
     `
       SELECT
@@ -49,6 +54,7 @@ async function listAlbumAssets(albumId, { limit = 200 } = {}) {
         a.created_by_user_id,
         a.created_by_user_id AS created_by_user_ref_id,
         creator.id AS created_by_external_user_id,
+        creator.name AS created_by_name,
         a.created_at
       FROM media_album_assets a
       LEFT JOIN users creator ON creator.id = a.created_by_user_id
@@ -68,8 +74,8 @@ async function getAlbumById(albumId) {
       SELECT
         ${mapAlbumSelect('a')}
       FROM media_albums a
-      JOIN committees c ON c.id = a.committee_id
-      JOIN users creator ON creator.id = a.created_by_user_id
+      LEFT JOIN committees c ON c.id = a.committee_id
+      LEFT JOIN users creator ON creator.id = a.created_by_user_id
       LEFT JOIN users updater ON updater.id = a.updated_by_user_id
       WHERE a.id = $1
       LIMIT 1
@@ -82,14 +88,22 @@ async function getAlbumById(albumId) {
   const assets = await listAlbumAssets(albumId);
   album.assets = assets;
   album.assets_count = assets.length;
+  if (!album.cover_image_url && assets.length > 0) {
+    album.cover_image_url = assets[0].asset_url;
+  }
   return album;
 }
+
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 async function createAlbum({
   committeeId,
   title,
   description = null,
   coverImageUrl = null,
+  eventDate = null,
+  category = 'General',
+  tags = [],
   status = 'draft',
   createdByUserId,
   actorUserId,
@@ -98,10 +112,12 @@ async function createAlbum({
   initialAssets = [],
 }) {
   const albumId = randomUUID();
-  const creatorId = createdByUserId || actorUserId || actorUserRefId;
+  const rawCreator = createdByUserId || actorUserId || actorUserRefId;
+  const creatorId = rawCreator && UUID_REGEX.test(rawCreator) ? rawCreator : '11111111-0000-4000-8000-000000000001';
   const pool = getPool();
   const client = await pool.connect();
   const targetAssets = Array.isArray(assets) && assets.length > 0 ? assets : (Array.isArray(initialAssets) ? initialAssets : []);
+  const targetTags = Array.isArray(tags) ? tags : [];
 
   try {
     await client.query('BEGIN');
@@ -114,18 +130,24 @@ async function createAlbum({
           title,
           description,
           cover_image_url,
+          event_date,
+          category,
+          tags,
           status,
           created_by_user_id,
           updated_by_user_id
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $7)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $10)
       `,
       [
         albumId,
-        committeeId,
+        committeeId || null,
         title.trim(),
         description ? description.trim() : null,
         coverImageUrl || null,
+        eventDate ? new Date(eventDate) : null,
+        category ? category.trim() : 'General',
+        targetTags,
         status,
         creatorId,
       ]
@@ -168,6 +190,102 @@ async function createAlbum({
   return getAlbumById(albumId);
 }
 
+async function updateAlbum({
+  albumId,
+  title,
+  description,
+  coverImageUrl,
+  eventDate,
+  category,
+  tags,
+  status,
+  committeeId,
+  updatedByUserId,
+  actorUserId,
+  actorUserRefId,
+}) {
+  const rawUpdater = updatedByUserId || actorUserId || actorUserRefId;
+  const updaterId = rawUpdater && UUID_REGEX.test(rawUpdater) ? rawUpdater : null;
+  const updates = [];
+  const values = [albumId];
+
+  if (committeeId !== undefined) {
+    values.push(committeeId ? committeeId : null);
+    updates.push(`committee_id = $${values.length}`);
+  }
+  if (title !== undefined) {
+    values.push(title.trim());
+    updates.push(`title = $${values.length}`);
+  }
+  if (description !== undefined) {
+    values.push(description ? description.trim() : null);
+    updates.push(`description = $${values.length}`);
+  }
+  if (coverImageUrl !== undefined) {
+    values.push(coverImageUrl ? coverImageUrl.trim() : null);
+    updates.push(`cover_image_url = $${values.length}`);
+  }
+  if (eventDate !== undefined) {
+    values.push(eventDate ? new Date(eventDate) : null);
+    updates.push(`event_date = $${values.length}`);
+  }
+  if (category !== undefined) {
+    values.push(category ? category.trim() : 'General');
+    updates.push(`category = $${values.length}`);
+  }
+  if (tags !== undefined) {
+    values.push(Array.isArray(tags) ? tags : []);
+    updates.push(`tags = $${values.length}`);
+  }
+  if (status !== undefined) {
+    values.push(status);
+    updates.push(`status = $${values.length}`);
+    if (status === 'published') {
+      updates.push('published_at = COALESCE(published_at, NOW())');
+    }
+  }
+
+  if (updates.length === 0) {
+    return getAlbumById(albumId);
+  }
+
+  if (updaterId) {
+    values.push(updaterId);
+    updates.push(`updated_by_user_id = $${values.length}`);
+  }
+  updates.push('updated_at = NOW()');
+
+  const result = await query(
+    `
+      UPDATE media_albums
+      SET ${updates.join(', ')}
+      WHERE id = $1
+      RETURNING id
+    `,
+    values
+  );
+
+  if (!result.rows[0]) return null;
+  return getAlbumById(albumId);
+}
+
+async function deleteAlbum(albumId) {
+  const pool = getPool();
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query('DELETE FROM media_album_assets WHERE album_id = $1', [albumId]);
+    const res = await client.query('DELETE FROM media_albums WHERE id = $1 RETURNING id', [albumId]);
+    await client.query('COMMIT');
+    return res.rowCount > 0;
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
 async function addAlbumAsset({
   albumId,
   assetUrl,
@@ -178,7 +296,8 @@ async function addAlbumAsset({
   actorUserRefId,
 }) {
   const assetId = randomUUID();
-  const creatorId = createdByUserId || actorUserId || actorUserRefId || null;
+  const rawCreator = createdByUserId || actorUserId || actorUserRefId;
+  const creatorId = rawCreator && UUID_REGEX.test(rawCreator) ? rawCreator : null;
 
   const result = await query(
     `
@@ -199,8 +318,17 @@ async function addAlbumAsset({
   return result.rows[0];
 }
 
+async function deleteAlbumAsset({ albumId, assetId }) {
+  const result = await query(
+    'DELETE FROM media_album_assets WHERE id = $1 AND album_id = $2 RETURNING id',
+    [assetId, albumId]
+  );
+  return result.rowCount > 0;
+}
+
 async function publishAlbum({ albumId, actorUserId, actorUserRefId }) {
-  const updaterId = actorUserId || actorUserRefId || null;
+  const rawUpdater = actorUserId || actorUserRefId;
+  const updaterId = rawUpdater && UUID_REGEX.test(rawUpdater) ? rawUpdater : null;
   const result = await query(
     `
       UPDATE media_albums
@@ -219,9 +347,30 @@ async function publishAlbum({ albumId, actorUserId, actorUserRefId }) {
   return getAlbumById(albumId);
 }
 
+async function unpublishAlbum({ albumId, actorUserId, actorUserRefId }) {
+  const rawUpdater = actorUserId || actorUserRefId;
+  const updaterId = rawUpdater && UUID_REGEX.test(rawUpdater) ? rawUpdater : null;
+  const result = await query(
+    `
+      UPDATE media_albums
+      SET
+        status = 'draft',
+        updated_by_user_id = $2,
+        updated_at = NOW()
+      WHERE id = $1
+      RETURNING id
+    `,
+    [albumId, updaterId]
+  );
+
+  if (!result.rows[0]) return null;
+  return getAlbumById(albumId);
+}
+
 async function listAlbums({
   committeeId = null,
   status = null,
+  search = null,
   limit = 50,
   offset = 0,
 } = {}) {
@@ -233,9 +382,21 @@ async function listAlbums({
     where.push(`a.committee_id = $${values.length}`);
   }
 
-  if (status) {
+  if (status && status !== 'all') {
     values.push(status);
     where.push(`a.status = $${values.length}`);
+  }
+
+  if (search && search.trim()) {
+    values.push(`%${search.trim().toLowerCase()}%`);
+    where.push(`(
+      LOWER(a.title) LIKE $${values.length}
+      OR LOWER(COALESCE(a.description, '')) LIKE $${values.length}
+      OR LOWER(COALESCE(a.category, '')) LIKE $${values.length}
+      OR EXISTS (
+        SELECT 1 FROM unnest(a.tags) tag WHERE LOWER(tag) LIKE $${values.length}
+      )
+    )`);
   }
 
   const whereClause = where.length ? `WHERE ${where.join(' AND ')}` : '';
@@ -246,8 +407,8 @@ async function listAlbums({
         ${mapAlbumSelect('a')},
         COALESCE(asset_counts.count, 0)::int AS assets_count
       FROM media_albums a
-      JOIN committees c ON c.id = a.committee_id
-      JOIN users creator ON creator.id = a.created_by_user_id
+      LEFT JOIN committees c ON c.id = a.committee_id
+      LEFT JOIN users creator ON creator.id = a.created_by_user_id
       LEFT JOIN users updater ON updater.id = a.updated_by_user_id
       LEFT JOIN (
         SELECT album_id, COUNT(*)::int AS count
@@ -272,12 +433,33 @@ async function listAlbums({
   return albums;
 }
 
+async function getMediaStats() {
+  const [albumsRes, assetsRes, publishedRes, brandRes] = await Promise.all([
+    query('SELECT COUNT(*)::int AS count FROM media_albums'),
+    query('SELECT COUNT(*)::int AS count FROM media_album_assets'),
+    query("SELECT COUNT(*)::int AS count FROM media_albums WHERE status = 'published'"),
+    query('SELECT COUNT(*)::int AS count FROM media_brand_assets'),
+  ]);
+
+  return {
+    totalAlbums: albumsRes.rows[0]?.count || 0,
+    totalAssets: assetsRes.rows[0]?.count || 0,
+    publishedAlbums: publishedRes.rows[0]?.count || 0,
+    totalBrandAssets: brandRes.rows[0]?.count || 0,
+  };
+}
+
 module.exports = {
   addAlbumAsset,
   countAlbumAssets,
   createAlbum,
+  deleteAlbum,
+  deleteAlbumAsset,
   getAlbumById,
+  getMediaStats,
   listAlbumAssets,
   listAlbums,
   publishAlbum,
+  unpublishAlbum,
+  updateAlbum,
 };

@@ -200,18 +200,43 @@ async function listManageablePrCommitteeIds(identity) {
   return committeesRepository.listCommitteeIdsForUserRole(currentUserId, 'lead');
 }
 
-function canManageMediaCommittee({ identity, membershipRole, committeeId = null }) {
+async function isMediaCommitteeLead(identity) {
+  if (!identity) return false;
+  if (isPrivilegedGlobalAccess(identity)) return true;
+  if (identity.scopeType === 'committee' && identity.scopeId && identity.role === 'lead') {
+    const committee = await committeesRepository.getCommitteeById(identity.scopeId);
+    if (committee?.slug === 'media') return true;
+  }
+  const currentUserId = identity?.userRefId || identity?.userId || identity?.externalUserId;
+  if (currentUserId) {
+    const mediaCommittee = await committeesRepository.getCommitteeBySlug('media');
+    if (mediaCommittee) {
+      const role = await committeesRepository.getMembershipRole(currentUserId, mediaCommittee.id);
+      if (role === 'lead') return true;
+    }
+  }
+  return false;
+}
+
+async function canManageMediaCommittee({ identity, membershipRole, committeeId = null }) {
+  if (isPrivilegedGlobalAccess(identity)) return true;
+  if (identity?.role === 'lead') return true;
+  if (await isMediaCommitteeLead(identity)) return true;
   return canManagePrCommittee({ identity, membershipRole, committeeId });
 }
 
-function canPublishMediaAlbum({ identity, committeeId }) {
-  if (!['admin', 'publisher'].includes(identity.role)) return false;
-  if (identity.scopeType === 'global') return true;
-  if (identity.scopeType === 'committee') return identity.scopeId === committeeId;
+async function canPublishMediaAlbum({ identity, committeeId, membershipRole = null }) {
+  if (isPrivilegedGlobalAccess(identity)) return true;
+  if (['admin', 'publisher'].includes(identity.role)) {
+    if (identity.scopeType === 'global') return true;
+    if (identity.scopeType === 'committee') return !committeeId || identity.scopeId === committeeId;
+  }
+  if (await isMediaCommitteeLead(identity)) return true;
   return false;
 }
 
 async function listManageableMediaCommitteeIds(identity) {
+  if (isPrivilegedGlobalAccess(identity) || (await isMediaCommitteeLead(identity))) return null;
   return listManageablePrCommitteeIds(identity);
 }
 
@@ -233,6 +258,7 @@ module.exports = {
   getMembershipRoleForCommittee,
   isGlobalAccess,
   isHrCommitteeLead,
+  isMediaCommitteeLead,
   isPrivilegedGlobalAccess,
   listManageableHrCommitteeIds,
   listManageableMediaCommitteeIds,

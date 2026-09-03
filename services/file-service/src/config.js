@@ -44,6 +44,7 @@ const config = {
   // Allowed folder categories
   allowedFolders: new Set([
     'media_albums',
+    'brand_kit',
     'resources',
     'avatars',
     'events',

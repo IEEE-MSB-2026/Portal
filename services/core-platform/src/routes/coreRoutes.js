@@ -14,6 +14,7 @@ const hrReportsController = require('../controllers/hrReportsController');
 const prAnnouncementController = require('../controllers/prAnnouncementController');
 const prCampaignController = require('../controllers/prCampaignController');
 const mediaAlbumController = require('../controllers/mediaAlbumController');
+const mediaBrandAssetController = require('../controllers/mediaBrandAssetController');
 const mediaCoverageController = require('../controllers/mediaCoverageController');
 const officerAdminController = require('../controllers/officerAdminController');
 const userProfileController = require('../controllers/userProfileController');
@@ -99,12 +100,27 @@ router.post('/pr/campaigns/:campaignId/duplicate', prCampaignController.duplicat
 router.post('/pr/campaigns/:campaignId/send', prCampaignController.sendCampaign);
 router.get('/pr/campaigns/:campaignId/delivery', prCampaignController.getCampaignDelivery);
 router.get('/pr/campaigns/:campaignId/delivery-logs', prCampaignController.getCampaignDelivery);
+
+// Media Studio & Brand Asset Repository
+router.get('/media/stats', mediaAlbumController.getMediaStats);
 router.post('/media/albums', mediaAlbumController.createAlbum);
 router.get('/media/albums', mediaAlbumController.listAlbums);
+router.get('/media/albums/:albumId', mediaAlbumController.getAlbum);
+router.patch('/media/albums/:albumId', mediaAlbumController.updateAlbum);
+router.delete('/media/albums/:albumId', mediaAlbumController.deleteAlbum);
 router.post('/media/albums/:albumId/assets', mediaAlbumController.addAlbumAsset);
+router.delete('/media/albums/:albumId/assets/:assetId', mediaAlbumController.deleteAlbumAsset);
 router.post('/media/albums/:albumId/publish', mediaAlbumController.publishAlbum);
+router.post('/media/albums/:albumId/unpublish', mediaAlbumController.unpublishAlbum);
 router.post('/media/coverage-requests', mediaCoverageController.createCoverageRequest);
 router.patch('/media/coverage-requests/:requestId/status', mediaCoverageController.updateCoverageStatus);
+
+// Brand & Design Kit Assets
+router.get('/media/brand-assets', mediaBrandAssetController.listBrandAssets);
+router.post('/media/brand-assets', mediaBrandAssetController.createBrandAsset);
+router.patch('/media/brand-assets/:assetId', mediaBrandAssetController.updateBrandAsset);
+router.delete('/media/brand-assets/:assetId', mediaBrandAssetController.deleteBrandAsset);
+
 router.post('/admin/officers', officerAdminController.createOfficer);
 router.patch('/admin/officers/:id', officerAdminController.updateOfficer);
 router.delete('/admin/officers/:id', officerAdminController.deleteOfficer);

@@ -341,7 +341,7 @@ test('hr accept: success path assigns IAM role once and creates onboarding check
             'SELECT COUNT(*)::int AS c FROM hr_onboarding_items WHERE application_id = $1',
             [applicationId]
           );
-          assert.equal(onboardingCount.rows[0].c, 4);
+          assert.equal(onboardingCount.rows[0].c, 0);
 
           const acceptedStageRows = await query(
             `
@@ -430,7 +430,7 @@ test('hr accept: repeated call is idempotent and does not duplicate side effects
             'SELECT COUNT(*)::int AS c FROM hr_onboarding_items WHERE application_id = $1',
             [applicationId]
           );
-          assert.equal(onboardingCount.rows[0].c, 4);
+          assert.equal(onboardingCount.rows[0].c, 0);
         } finally {
           await new Promise((resolve) => server.close(resolve));
         }
@@ -697,6 +697,42 @@ test('onboarding APIs: visibility filtering and update permissions are enforced'
             scopeType: ACTORS.memberAi.scopeType,
             scopeId: ACTORS.memberAi.scopeId,
           });
+
+          // 1. Before welcome email is dispatched, onboarding checklist items are NOT yet created (count is 0)
+          const selfReadBefore = await requestJson(server, {
+            method: 'GET',
+            path: selfPath,
+            headers: selfHeaders,
+          });
+          assert.equal(selfReadBefore.response.status, 200);
+          assert.equal(selfReadBefore.payload.onboarding.items.length, 0);
+
+          // 2. Dispatch welcome email via mark-welcome-sent
+          const markPath = '/core/hr/applications/mark-welcome-sent';
+          const markHeaders = signedHeaders({
+            method: 'POST',
+            path: markPath,
+            userId: ACTORS.officerGlobal.userId,
+            userEmail: ACTORS.officerGlobal.userEmail,
+            userRole: ACTORS.officerGlobal.userRole,
+            scopeType: ACTORS.officerGlobal.scopeType,
+            scopeId: ACTORS.officerGlobal.scopeId,
+          });
+          const markRes = await requestJson(server, {
+            method: 'POST',
+            path: markPath,
+            headers: markHeaders,
+            body: {
+              applicationIds: [
+                hrSubmission.payload.application.id,
+                aiSubmission.payload.application.id,
+              ],
+            },
+          });
+          assert.equal(markRes.response.status, 200);
+          assert.equal(markRes.payload.updatedCount, 2);
+
+          // 3. Now member has 8 onboarding items (4 per committee)
           const selfRead = await requestJson(server, {
             method: 'GET',
             path: selfPath,
@@ -705,6 +741,7 @@ test('onboarding APIs: visibility filtering and update permissions are enforced'
 
           assert.equal(selfRead.response.status, 200);
           assert.equal(selfRead.payload.onboarding.items.length, 8);
+          assert.equal(selfRead.payload.onboarding.items[0].title, 'Complete Your Portal Profile');
 
           const hrLeadHeaders = signedHeaders({
             method: 'GET',
@@ -877,11 +914,26 @@ test('onboarding candidates queue: lists unsent accepted candidates and marks se
             method: 'POST',
             path: markPath,
             headers: markHeaders,
-            body: { applicationIds: [sub1.payload.application.id] },
+            body: {
+              applicationIds: [sub1.payload.application.id],
+              checklistSteps: [
+                { id: 'custom_1', title: 'Upload Your Photo to Portal' },
+                { id: 'custom_2', title: 'Join Committee Slack' },
+              ],
+            },
           });
 
           assert.equal(markRes.response.status, 200);
           assert.equal(markRes.payload.updatedCount, 1);
+
+          // Verify candidate's onboarding items match the custom checklist
+          const onbItems = await query(
+            'SELECT title, template_key FROM hr_onboarding_items WHERE application_id = $1 ORDER BY sort_order ASC',
+            [sub1.payload.application.id]
+          );
+          assert.equal(onbItems.rows.length, 2);
+          assert.equal(onbItems.rows[0].title, 'Upload Your Photo to Portal');
+          assert.equal(onbItems.rows[1].title, 'Join Committee Slack');
 
           // 3. Query queue again: unsent count is now 0, sent count is 1
           const resAfter = await requestJson(server, {

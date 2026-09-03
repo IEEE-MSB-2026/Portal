@@ -1,12 +1,25 @@
 const config = require('../config');
 const cloudinaryService = require('../services/cloudinaryService');
 
+const FOLDER_ALIASES = {
+  event_albums: 'media_albums',
+  albums: 'media_albums',
+  brand: 'brand_kit',
+  brand_assets: 'brand_kit',
+  brandkit: 'brand_kit',
+};
+
+function normalizeFolder(folder) {
+  const raw = typeof folder === 'string' ? folder.trim().toLowerCase() : 'general';
+  const stripped = raw.replace(/^ieee_portal\//, '');
+  return FOLDER_ALIASES[stripped] || stripped;
+}
+
 async function getUploadSignature(req, res, next) {
   try {
     const { folder, resourceType, customTransform, tags, publicId } = req.body || {};
 
-    const rawFolder = typeof folder === 'string' ? folder.trim().toLowerCase() : 'general';
-    const targetFolder = rawFolder.replace(/^ieee_portal\//, '');
+    const targetFolder = normalizeFolder(folder);
     if (!config.allowedFolders.has(targetFolder)) {
       return res.status(400).json({
         error: `Invalid folder. Allowed folders: ${Array.from(config.allowedFolders).join(', ')}`,
@@ -14,7 +27,7 @@ async function getUploadSignature(req, res, next) {
     }
 
     // Role-based folder restriction: applicants/visitors are only allowed to upload to 'applications' or 'general'
-    if (['applicant', 'visitor'].includes(req.identity.role)) {
+    if (['applicant', 'visitor'].includes(req.identity?.role)) {
       if (!['applications', 'general'].includes(targetFolder)) {
         return res.status(403).json({
           error: 'Applicants can only request upload signatures for application attachments or general files',
@@ -45,7 +58,7 @@ async function uploadFile(req, res, next) {
       return res.status(400).json({ error: 'No file uploaded' });
     }
 
-    const folder = typeof req.body?.folder === 'string' ? req.body.folder.trim().toLowerCase() : 'general';
+    const folder = normalizeFolder(req.body?.folder);
     if (!config.allowedFolders.has(folder)) {
       return res.status(400).json({
         error: `Invalid folder. Allowed folders: ${Array.from(config.allowedFolders).join(', ')}`,

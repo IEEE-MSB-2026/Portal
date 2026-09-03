@@ -22,25 +22,25 @@ const STAGE_TRANSITIONS = {
 const ACCEPTABLE_STAGE = 'final_review';
 const ONBOARDING_CHECKLIST_TEMPLATE = [
   {
-    templateKey: 'join_channels',
-    title: 'Join committee communication channels',
+    templateKey: 'complete_profile',
+    title: 'Complete Your Portal Profile',
     sortOrder: 1,
   },
   {
-    templateKey: 'attend_intro',
-    title: 'Attend your first general meeting',
+    templateKey: 'join_community',
+    title: 'Join Our WhatsApp Community',
     sortOrder: 2,
   },
   {
-    templateKey: 'introduce_yourself',
-    title: 'Introduce yourself to the committee',
+    templateKey: 'attend_meeting',
+    title: 'Attend General Meeting',
     sortOrder: 3,
   },
   {
-    templateKey: 'read_handbook',
-    title: 'Read committee handbook and policies',
+    templateKey: 'explore_workspace',
+    title: 'Explore Committee Workspace',
     sortOrder: 4,
-  }
+  },
 ];
 
 function isNowWithinCampaignWindow(campaign, now = new Date()) {
@@ -399,7 +399,7 @@ async function acceptApplication(req, res, next) {
       applicationId,
       actorUserRefId: req.identity.userRefId,
       notes: payload.notes,
-      checklistItems: ONBOARDING_CHECKLIST_TEMPLATE,
+      createChecklist: false,
     });
 
     if (acceptanceResult.status === 'not_found') {
@@ -601,7 +601,35 @@ async function markWelcomeSent(req, res, next) {
       }
     }
 
-    const updatedRows = await hrApplicationsRepository.markWelcomeEmailsSent(applicationIds);
+    // Parse custom checklistSteps or checklistItems if passed, else fallback to ONBOARDING_CHECKLIST_TEMPLATE
+    let checklistItems = ONBOARDING_CHECKLIST_TEMPLATE;
+    const rawSteps = req.body?.checklistSteps || req.body?.checklistItems;
+    if (Array.isArray(rawSteps) && rawSteps.length > 0) {
+      const parsed = rawSteps
+        .filter((step) => step && typeof step.title === 'string' && step.title.trim())
+        .map((step, idx) => ({
+          templateKey: step.id || step.templateKey || `step_${idx + 1}`,
+          title: step.title.trim(),
+          sortOrder: typeof step.sortOrder === 'number' ? step.sortOrder : idx + 1,
+        }));
+      if (parsed.length > 0) {
+        checklistItems = parsed;
+      }
+    }
+
+    const updatedRows = await hrApplicationsRepository.markWelcomeEmailsSent(applicationIds, {
+      checklistItems,
+      actorUserRefId: req.identity.userRefId,
+    });
+
+    logger.info({
+      event: 'hr.application.welcome_emails_marked_sent',
+      requestId: req.requestId,
+      count: updatedRows.length,
+      actorUserId: req.identity.externalUserId,
+      checklistCount: checklistItems.length,
+    });
+
     return res.status(200).json({
       success: true,
       updatedCount: updatedRows.length,
