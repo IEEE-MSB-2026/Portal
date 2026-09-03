@@ -204,6 +204,8 @@ async function listCampaigns({
   status = null,
   includeArchived = false,
   segmentType = null,
+  category = null,
+  includeHr = false,
   limit = 50,
   offset = 0,
 } = {}) {
@@ -228,6 +230,16 @@ async function listCampaigns({
   if (segmentType) {
     values.push(segmentType);
     where.push(`c.segment_type = $${values.length}`);
+  }
+
+  // Category filtering for automated HR outreach vs standard PR campaigns
+  if (category === 'hr_outreach' || category === 'hr') {
+    where.push(`c.metadata->>'category' = 'hr_outreach'`);
+  } else if (category === 'pr') {
+    where.push(`(c.metadata->>'category' IS DISTINCT FROM 'hr_outreach')`);
+  } else if (!includeHr && category !== 'all') {
+    // Default: exclude automated HR outreach campaigns from standard PR lists
+    where.push(`(c.metadata->>'category' IS DISTINCT FROM 'hr_outreach')`);
   }
 
   const whereClause = where.length ? `WHERE ${where.join(' AND ')}` : '';

@@ -1,5 +1,6 @@
 const { randomUUID } = require('crypto');
 const prCampaignsRepository = require('../repositories/prCampaignsRepository');
+const hrApplicationsRepository = require('../repositories/hrApplicationsRepository');
 const emailNotificationService = require('./emailNotificationService');
 
 /**
@@ -54,13 +55,64 @@ function renderTemplate(templateString, context = {}) {
   });
 }
 
+function cleanEmptyEmailSections(html = '') {
+  if (!html || typeof html !== 'string') return '';
+
+  let cleaned = html;
+
+  // 1. Remove <a> tags with empty, hash, null, or undefined href
+  cleaned = cleaned.replace(/<a\b[^>]*\bhref=["'](?:#|undefined|null|)?["'][^>]*>[\s\S]*?<\/a>/gi, '');
+
+  // 2. Remove CTA button container if it contains no <a> tags left
+  cleaned = cleaned.replace(/<div\b[^>]*data-section=["']cta-buttons["'][^>]*>([\s\S]*?)<\/div>/gi, (match, inner) => {
+    if (!/<a\b/i.test(inner)) {
+      return '';
+    }
+    return match;
+  });
+  cleaned = cleaned.replace(/<div\b[^>]*style=["'][^"']*text-align:\s*center[^"']*["'][^>]*>\s*<\/div>/gi, '');
+
+  // 3. Remove orientation block if date is empty or '—'
+  cleaned = cleaned.replace(/<div\b[^>]*data-section=["']orientation["'][^>]*>([\s\S]*?)<\/div>/gi, (match, inner) => {
+    const spanMatch = inner.match(/<span\b[^>]*>([\s\S]*?)<\/span>/i);
+    if (!spanMatch || !spanMatch[1] || !spanMatch[1].trim() || spanMatch[1].trim() === '—') {
+      return '';
+    }
+    return match;
+  });
+  cleaned = cleaned.replace(/<div\b[^>]*style=["'][^"']*rgba\(0,\s*98,\s*155,\s*0\.07\)[^"']*["'][^>]*>[\s\S]*?<span\b[^>]*>\s*(?:—)?\s*<\/span>[\s\S]*?<\/div>/gi, '');
+
+  // 4. Remove empty description spans
+  cleaned = cleaned.replace(/<span\b[^>]*style=["'][^"']*color:\s*#64748b[^"']*["'][^>]*>\s*<\/span>/gi, '');
+
+  // 5. Remove checklist rows with empty <strong> title
+  cleaned = cleaned.replace(/<tr\b[^>]*>[\s\S]*?<strong\b[^>]*>\s*<\/strong>[\s\S]*?<\/tr>/gi, '');
+
+  // 6. Re-number checklist badges sequentially (1, 2, 3...)
+  let stepIndex = 1;
+  cleaned = cleaned.replace(/(<tr\b[^>]*>[\s\S]*?<div\b[^>]*>)\s*\d+\s*(<\/div>[\s\S]*?<\/tr>)/gi, (match, before, after) => {
+    return `${before}${stepIndex++}${after}`;
+  });
+
+  // 7. Remove checklist section if table has no <tr> rows left
+  cleaned = cleaned.replace(/<div\b[^>]*data-section=["']checklist["'][^>]*>([\s\S]*?)<\/div>/gi, (match, inner) => {
+    if (!/<tr\b/i.test(inner)) {
+      return '';
+    }
+    return match;
+  });
+  cleaned = cleaned.replace(/<div\b[^>]*style=["'][^"']*margin-bottom:\s*24px[^"']*["'][^>]*>[\s\S]*?<table\b[^>]*>\s*<\/table>[\s\S]*?<\/div>/gi, '');
+
+  return cleaned;
+}
+
 /**
  * Builds responsive IEEE Menoufia branded HTML email
  */
 function formatEmailHtml({ title, body, recipientName, committeeName }) {
   const trimmed = (body || '').trim();
   if (trimmed.toLowerCase().startsWith('<!doctype') || trimmed.toLowerCase().startsWith('<html')) {
-    return trimmed;
+    return cleanEmptyEmailSections(trimmed);
   }
 
   let contentHtml = body;
@@ -233,6 +285,27 @@ async function dispatchCampaign({
       skippedCount: notification.skippedCount,
       logs: detailedLogs,
     };
+  }
+
+  if (notification.ok && campaign.metadata) {
+    try {
+      let meta = campaign.metadata;
+      if (typeof meta === 'string') meta = JSON.parse(meta);
+      const isHrOutreach = meta?.category === 'hr_outreach' || meta?.source === 'hr_studio';
+      if (isHrOutreach) {
+        let appIds = Array.isArray(meta?.applicationIds) ? meta.applicationIds : [];
+        if (appIds.length === 0 && Array.isArray(customRecipients)) {
+          appIds = customRecipients
+            .map((r) => r.applicationId || r.customFields?.applicationId)
+            .filter(Boolean);
+        }
+        if (appIds.length > 0) {
+          await hrApplicationsRepository.markWelcomeEmailsSent(appIds);
+        }
+      }
+    } catch {
+      // Non-critical background hook
+    }
   }
 
   return {

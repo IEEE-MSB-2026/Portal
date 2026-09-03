@@ -105,6 +105,7 @@ async function canReadCommittee(identity, committeeId) {
 
 async function isHrCommitteeLead(identity) {
   if (!identity) return false;
+  if (isPrivilegedGlobalAccess(identity)) return true;
   if (identity.scopeType === 'committee' && identity.scopeId && identity.role === 'lead') {
     const committee = await committeesRepository.getCommitteeById(identity.scopeId);
     if (committee?.slug === 'hr') return true;

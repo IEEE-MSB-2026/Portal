@@ -158,8 +158,15 @@ function isGlobalPublisher(identity) {
   return identity.role === 'publisher' && identity.scopeType === 'global';
 }
 
-async function canSendCampaign(identity, committeeId) {
+async function canSendCampaign(identity, committeeId, campaign = null) {
   if (authzService.isPrivilegedGlobalAccess(identity)) return true;
+  const isHrOutreach = campaign?.metadata?.category === 'hr_outreach';
+  if (isHrOutreach) {
+    if (await authzService.isHrCommitteeLead(identity) || identity.role === 'lead' || identity.role === 'publisher') {
+      return true;
+    }
+  }
+  if (await authzService.isHrCommitteeLead(identity)) return true;
   if (identity.role === 'publisher') {
     if (identity.scopeType === 'global') return true;
     if (identity.scopeType === 'committee') {
@@ -171,6 +178,24 @@ async function canSendCampaign(identity, committeeId) {
     return membershipRole === 'lead';
   }
   return false;
+}
+
+async function canManageCampaignRecord(identity, campaign) {
+  if (authzService.isPrivilegedGlobalAccess(identity)) return true;
+  if (campaign.metadata?.category === 'hr_outreach') {
+    if (await authzService.isHrCommitteeLead(identity) || identity.role === 'lead' || identity.role === 'publisher') {
+      return true;
+    }
+  }
+  if (campaign.committee_id) {
+    const membershipRole = await authzService.getMembershipRoleForCommittee(identity, campaign.committee_id);
+    return authzService.canManagePrCommittee({
+      identity,
+      membershipRole,
+      committeeId: campaign.committee_id,
+    });
+  }
+  return isGlobalPublisher(identity);
 }
 
 async function ensurePrManageAccess(identity, committeeId) {
@@ -189,7 +214,13 @@ async function createCampaign(req, res, next) {
   try {
     const payload = parseCreateInput(req.body || {});
 
-    if (payload.segmentType === 'all_members' || (payload.segmentType === 'committee_leads' && !payload.committeeId)) {
+    const isHrOutreach = payload.metadata?.category === 'hr_outreach';
+    const isHrLead = await authzService.isHrCommitteeLead(req.identity);
+    const canCreateHr = isHrOutreach && (isHrLead || authzService.isPrivilegedGlobalAccess(req.identity) || req.identity.role === 'lead' || req.identity.role === 'publisher');
+
+    if (canCreateHr) {
+      // Allowed for HR outreach
+    } else if (payload.segmentType === 'all_members' || (payload.segmentType === 'committee_leads' && !payload.committeeId)) {
       if (!(authzService.isPrivilegedGlobalAccess(req.identity) || isGlobalPublisher(req.identity))) {
         throw new HttpError(403, 'Forbidden');
       }
@@ -199,7 +230,7 @@ async function createCampaign(req, res, next) {
         throw new HttpError(404, 'Committee not found');
       }
       await ensurePrManageAccess(req.identity, payload.committeeId);
-    } else if (!(authzService.isPrivilegedGlobalAccess(req.identity) || isGlobalPublisher(req.identity))) {
+    } else if (!(authzService.isPrivilegedGlobalAccess(req.identity) || isGlobalPublisher(req.identity) || (isHrOutreach && isHrLead))) {
       throw new HttpError(403, 'Forbidden');
     }
 
@@ -251,9 +282,8 @@ async function updateCampaign(req, res, next) {
       throw new HttpError(400, 'Cannot edit an already sent campaign');
     }
 
-    if (existing.committee_id) {
-      await ensurePrManageAccess(req.identity, existing.committee_id);
-    } else if (!(authzService.isPrivilegedGlobalAccess(req.identity) || isGlobalPublisher(req.identity))) {
+    const canManage = await canManageCampaignRecord(req.identity, existing);
+    if (!canManage) {
       throw new HttpError(403, 'Forbidden');
     }
 
@@ -304,9 +334,8 @@ async function deleteCampaign(req, res, next) {
       throw new HttpError(404, 'Campaign not found');
     }
 
-    if (existing.committee_id) {
-      await ensurePrManageAccess(req.identity, existing.committee_id);
-    } else if (!(authzService.isPrivilegedGlobalAccess(req.identity) || isGlobalPublisher(req.identity))) {
+    const canManage = await canManageCampaignRecord(req.identity, existing);
+    if (!canManage) {
       throw new HttpError(403, 'Forbidden');
     }
 
@@ -329,9 +358,8 @@ async function archiveCampaign(req, res, next) {
       throw new HttpError(404, 'Campaign not found');
     }
 
-    if (existing.committee_id) {
-      await ensurePrManageAccess(req.identity, existing.committee_id);
-    } else if (!(authzService.isPrivilegedGlobalAccess(req.identity) || isGlobalPublisher(req.identity))) {
+    const canManage = await canManageCampaignRecord(req.identity, existing);
+    if (!canManage) {
       throw new HttpError(403, 'Forbidden');
     }
 
@@ -365,9 +393,8 @@ async function unarchiveCampaign(req, res, next) {
       throw new HttpError(404, 'Campaign not found');
     }
 
-    if (existing.committee_id) {
-      await ensurePrManageAccess(req.identity, existing.committee_id);
-    } else if (!(authzService.isPrivilegedGlobalAccess(req.identity) || isGlobalPublisher(req.identity))) {
+    const canManage = await canManageCampaignRecord(req.identity, existing);
+    if (!canManage) {
       throw new HttpError(403, 'Forbidden');
     }
 
@@ -431,6 +458,8 @@ async function listCampaigns(req, res, next) {
     const committeeId = typeof req.query?.committeeId === 'string' ? req.query.committeeId.trim() : '';
     const status = typeof req.query?.status === 'string' ? req.query.status.trim() : null;
     const includeArchived = req.query?.includeArchived === 'true' || req.query?.includeArchived === true;
+    const category = typeof req.query?.category === 'string' ? req.query.category.trim() : null;
+    const includeHr = req.query?.includeHr === 'true' || req.query?.includeHr === true;
     const limit = parseLimit(req.query?.limit, 50, 100);
 
     if (committeeId && !isUuid(committeeId)) {
@@ -441,9 +470,14 @@ async function listCampaigns(req, res, next) {
     if (committeeId) {
       await ensurePrManageAccess(req.identity, committeeId);
     } else {
-      committeeIds = await authzService.listManageablePrCommitteeIds(req.identity);
-      if (Array.isArray(committeeIds) && committeeIds.length === 0) {
-        throw new HttpError(403, 'Forbidden');
+      const isHrLead = await authzService.isHrCommitteeLead(req.identity);
+      if (isHrLead || req.identity.role === 'lead' || req.identity.role === 'publisher' || category === 'hr_outreach' || includeHr) {
+        // Allowed to list campaigns
+      } else {
+        committeeIds = await authzService.listManageablePrCommitteeIds(req.identity);
+        if (Array.isArray(committeeIds) && committeeIds.length === 0) {
+          throw new HttpError(403, 'Forbidden');
+        }
       }
     }
 
@@ -452,6 +486,8 @@ async function listCampaigns(req, res, next) {
       committeeIds: committeeId ? null : committeeIds,
       status: status || null,
       includeArchived: status === 'archived' || includeArchived,
+      category: category || null,
+      includeHr: Boolean(includeHr),
       limit,
     });
 
@@ -529,7 +565,7 @@ async function sendCampaign(req, res, next) {
       throw new HttpError(404, 'Campaign not found');
     }
 
-    const hasSendAccess = await canSendCampaign(req.identity, campaign.committee_id);
+    const hasSendAccess = await canSendCampaign(req.identity, campaign.committee_id, campaign);
     if (!hasSendAccess) {
       throw new HttpError(403, 'Forbidden');
     }

@@ -767,4 +767,75 @@ test('pr campaigns: full HTML document template is dispatched directly without d
   }
 });
 
+test('pr campaigns: hr outreach categorization and default filtering', async () => {
+  const captureServer = await startCaptureServer({ statusCode: 202 });
+  try {
+    await withEnv(
+      {
+        EMAIL_SERVICE_URL: captureServer.baseUrl,
+        EMAIL_SERVICE_AUTH_TOKEN: 'secret-token',
+      },
+      async () => {
+        const app = loadFreshApp();
+        const server = await createServer(app);
+        try {
+          // 1. Create standard PR campaign
+          const prCamp = await createCampaign({
+            server,
+            actor: ACTORS.publisherGlobal,
+            body: {
+              title: 'General PR Announcement',
+              subject: 'Branch Updates',
+              body: 'PR content here',
+              segmentType: 'all_members',
+            },
+          });
+          assert.equal(prCamp.response.status, 201);
+
+          // 2. Create automated HR outreach campaign
+          const hrCamp = await createCampaign({
+            server,
+            actor: ACTORS.publisherGlobal,
+            body: {
+              title: 'HR Outreach: Recruitment Update',
+              subject: 'Application Stage Notice',
+              body: 'HR content here',
+              segmentType: 'custom_sheet',
+              customRecipients: [{ email: 'candidate@ieee.local', name: 'Candidate' }],
+              metadata: { category: 'hr_outreach', source: 'hr_studio' },
+            },
+          });
+          assert.equal(hrCamp.response.status, 201);
+
+          // 3. Default list should exclude HR outreach campaign
+          const defaultList = await listCampaigns({ server, actor: ACTORS.publisherGlobal });
+          assert.equal(defaultList.response.status, 200);
+          const defaultIds = defaultList.payload.campaigns.map((c) => c.id);
+          assert.ok(defaultIds.includes(prCamp.payload.campaign.id));
+          assert.ok(!defaultIds.includes(hrCamp.payload.campaign.id));
+
+          // 4. Query with category=hr_outreach should return ONLY HR campaigns
+          const hrList = await listCampaigns({ server, actor: ACTORS.publisherGlobal, query: 'category=hr_outreach' });
+          assert.equal(hrList.response.status, 200);
+          const hrIds = hrList.payload.campaigns.map((c) => c.id);
+          assert.ok(!hrIds.includes(prCamp.payload.campaign.id));
+          assert.ok(hrIds.includes(hrCamp.payload.campaign.id));
+
+          // 5. Query with includeHr=true should return both
+          const bothList = await listCampaigns({ server, actor: ACTORS.publisherGlobal, query: 'includeHr=true' });
+          assert.equal(bothList.response.status, 200);
+          const bothIds = bothList.payload.campaigns.map((c) => c.id);
+          assert.ok(bothIds.includes(prCamp.payload.campaign.id));
+          assert.ok(bothIds.includes(hrCamp.payload.campaign.id));
+        } finally {
+          await new Promise((resolve) => server.close(resolve));
+        }
+      }
+    );
+  } finally {
+    await captureServer.close();
+  }
+});
+
+
 

@@ -64,6 +64,8 @@ function toApplicationResponse(row) {
     applicantEmail: row.applicant_email,
     answers: row.answers,
     currentStage: row.current_stage,
+    welcomeEmailSent: Boolean(row.welcome_email_sent),
+    welcomeEmailSentAt: row.welcome_email_sent_at || null,
     submittedAt: row.submitted_at,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -219,10 +221,10 @@ async function listApplications(req, res, next) {
   try {
     const campaignIdRaw = typeof req.query.campaignId === 'string' ? req.query.campaignId.trim() : '';
     const committeeIdRaw = typeof req.query.committeeId === 'string' ? req.query.committeeId.trim() : '';
-    const limit = parseLimit(req.query.limit, 50, 100);
+    const limit = parseLimit(req.query.limit, 50, 500);
 
     let campaign = null;
-    let committeeId = null;
+    let targetCommitteeId = null;
 
     if (campaignIdRaw) {
       if (!isUuid(campaignIdRaw)) {
@@ -232,21 +234,34 @@ async function listApplications(req, res, next) {
       if (!campaign) {
         throw new HttpError(404, 'Campaign not found');
       }
-      committeeId = campaign.committee_id;
     }
 
     if (committeeIdRaw) {
       if (!isUuid(committeeIdRaw)) {
         throw new HttpError(400, 'Invalid committeeId format');
       }
-      if (committeeId && committeeId !== committeeIdRaw) {
-        throw new HttpError(400, 'campaignId and committeeId mismatch');
-      }
-      committeeId = committeeIdRaw;
+      targetCommitteeId = committeeIdRaw;
     }
 
-    if (committeeId) {
-      await ensureHrManageAccess(req.identity, committeeId);
+    if (targetCommitteeId) {
+      await ensureHrManageAccess(req.identity, targetCommitteeId);
+    } else if (campaign) {
+      const isPrivileged = authzService.isPrivilegedGlobalAccess(req.identity) || await authzService.isHrCommitteeLead(req.identity);
+      if (!isPrivileged) {
+        const campaignCommittees = campaign.committees || [];
+        let hasAccess = campaign.committee_id ? await authzService.isCommitteeLead(req.identity, campaign.committee_id) : false;
+        if (!hasAccess) {
+          for (const c of campaignCommittees) {
+            if (await authzService.isCommitteeLead(req.identity, c.id)) {
+              hasAccess = true;
+              break;
+            }
+          }
+        }
+        if (!hasAccess) {
+          throw new HttpError(403, 'Forbidden');
+        }
+      }
     } else {
       const hasBranchAccess = authzService.isPrivilegedGlobalAccess(req.identity) || await authzService.isHrCommitteeLead(req.identity);
       if (!hasBranchAccess) {
@@ -254,12 +269,13 @@ async function listApplications(req, res, next) {
       }
     }
 
-    const includeRejected = req.query.includeRejected === 'true' || req.query.rejected === 'true';
-    const includeAccepted = req.query.includeAccepted === 'true' || req.query.accepted === 'true';
+    const includeAll = req.query.all === 'true' || req.query.includeAll === 'true';
+    const includeRejected = includeAll || req.query.includeRejected === 'true' || req.query.rejected === 'true';
+    const includeAccepted = includeAll || req.query.includeAccepted === 'true' || req.query.accepted === 'true';
     const stageRaw = typeof req.query.stage === 'string' ? req.query.stage.trim() : '';
 
     const applications = await hrApplicationsRepository.listApplications({
-      committeeId,
+      committeeId: targetCommitteeId,
       campaignId: campaign ? campaign.id : null,
       stage: stageRaw || null,
       includeRejected,
@@ -409,27 +425,6 @@ async function acceptApplication(req, res, next) {
       actorUserId: req.identity.externalUserId,
     });
 
-    const onboardingNotification = await emailNotificationService.sendOnboardingChecklistNotification({
-      requestId: req.requestId,
-      route: req.originalUrl || `${req.baseUrl || ''}${req.path || ''}`,
-      applicationId,
-      committeeName: acceptanceResult.application.committee_name,
-      recipientEmail: acceptanceResult.application.applicant_email,
-      applicantExternalUserId: acceptanceResult.application.applicant_external_user_id,
-      checklistItems: ONBOARDING_CHECKLIST_TEMPLATE.map((item) => item.title),
-    });
-
-    if (!onboardingNotification.ok) {
-      logger.warn({
-        event: 'hr.application.accept.notification.undelivered',
-        requestId: req.requestId,
-        applicationId,
-        targetEmail: onboardingNotification.recipientEmail || acceptanceResult.application.applicant_email || null,
-        reason: onboardingNotification.reason,
-        statusCode: onboardingNotification.statusCode,
-      }, 'Onboarding email notification was skipped or failed');
-    }
-
     const acceptedApplication = await hrApplicationsRepository.getApplicationById(applicationId);
     return res.status(200).json({
       application: toApplicationResponse(acceptedApplication),
@@ -514,11 +509,117 @@ async function listMyApplications(req, res, next) {
   }
 }
 
+async function listOnboardingCandidates(req, res, next) {
+  try {
+    const campaignIdRaw = typeof req.query.campaignId === 'string' ? req.query.campaignId.trim() : '';
+    const committeeIdRaw = typeof req.query.committeeId === 'string' ? req.query.committeeId.trim() : '';
+    const welcomeEmailSent = typeof req.query.welcomeEmailSent === 'string' ? req.query.welcomeEmailSent.trim() : 'false';
+    const search = typeof req.query.search === 'string' ? req.query.search.trim() : '';
+    const limit = parseLimit(req.query.limit, 100, 500);
+    const offset = Math.max(0, parseInt(req.query.offset, 10) || 0);
+
+    let targetCommitteeId = null;
+    let campaign = null;
+
+    if (campaignIdRaw) {
+      if (!isUuid(campaignIdRaw)) {
+        throw new HttpError(400, 'Invalid campaignId format');
+      }
+      campaign = await hrCampaignsRepository.getCampaignById(campaignIdRaw);
+      if (!campaign) {
+        throw new HttpError(404, 'Campaign not found');
+      }
+    }
+
+    if (committeeIdRaw) {
+      if (!isUuid(committeeIdRaw)) {
+        throw new HttpError(400, 'Invalid committeeId format');
+      }
+      targetCommitteeId = committeeIdRaw;
+    }
+
+    if (targetCommitteeId) {
+      await ensureHrManageAccess(req.identity, targetCommitteeId);
+    } else if (campaign) {
+      const isPrivileged = authzService.isPrivilegedGlobalAccess(req.identity) || await authzService.isHrCommitteeLead(req.identity);
+      if (!isPrivileged) {
+        const campaignCommittees = campaign.committees || [];
+        let hasAccess = campaign.committee_id ? await authzService.isCommitteeLead(req.identity, campaign.committee_id) : false;
+        if (!hasAccess) {
+          for (const c of campaignCommittees) {
+            if (await authzService.isCommitteeLead(req.identity, c.id)) {
+              hasAccess = true;
+              break;
+            }
+          }
+        }
+        if (!hasAccess) {
+          throw new HttpError(403, 'Forbidden');
+        }
+      }
+    } else {
+      const hasBranchAccess = authzService.isPrivilegedGlobalAccess(req.identity) || await authzService.isHrCommitteeLead(req.identity);
+      if (!hasBranchAccess) {
+        throw new HttpError(403, 'Forbidden');
+      }
+    }
+
+    const result = await hrApplicationsRepository.listOnboardingCandidates({
+      committeeId: targetCommitteeId,
+      campaignId: campaign ? campaign.id : null,
+      welcomeEmailSent,
+      search,
+      limit,
+      offset,
+    });
+
+    return res.status(200).json({
+      success: true,
+      summary: result.summary,
+      candidates: result.candidates.map((c) => toApplicationResponse(c)),
+    });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+async function markWelcomeSent(req, res, next) {
+  try {
+    const hasBranchAccess = authzService.isPrivilegedGlobalAccess(req.identity) || await authzService.isHrCommitteeLead(req.identity);
+    if (!hasBranchAccess) {
+      throw new HttpError(403, 'Forbidden: HR lead or administrator permissions required');
+    }
+
+    const applicationIds = Array.isArray(req.body?.applicationIds) ? req.body.applicationIds : [];
+    if (applicationIds.length === 0) {
+      return res.status(200).json({ success: true, updatedCount: 0, applications: [] });
+    }
+
+    for (const id of applicationIds) {
+      if (!isUuid(id)) {
+        throw new HttpError(400, `Invalid applicationId format: ${id}`);
+      }
+    }
+
+    const updatedRows = await hrApplicationsRepository.markWelcomeEmailsSent(applicationIds);
+    return res.status(200).json({
+      success: true,
+      updatedCount: updatedRows.length,
+      applications: updatedRows.map((r) => toApplicationResponse(r)),
+    });
+  } catch (error) {
+    return next(error);
+  }
+}
+
 module.exports = {
   acceptApplication,
   createApplication,
   listApplications,
   listMyApplications,
+  listOnboardingCandidates,
+  markWelcomeSent,
   rejectApplication,
   updateApplicationStage,
 };
+

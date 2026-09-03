@@ -353,9 +353,16 @@ test('hr accept: success path assigns IAM role once and creates onboarding check
           );
           assert.equal(acceptedStageRows.rows[0].c, 1);
 
-          assert.equal(emailServer.requests.length, 1);
-          assert.equal(emailServer.requests[0].body.eventType, 'core.hr.onboarding.created');
-          assert.equal(emailServer.requests[0].body.to[0], 'member.ai@ieee.local');
+          // Verify committee membership was added for the candidate
+          const membershipRows = await query(
+            'SELECT committee_id, role_in_committee FROM committee_memberships WHERE user_id = $1 AND committee_id = $2',
+            [IDS.users.memberAi, IDS.committees.hr]
+          );
+          assert.equal(membershipRows.rows.length, 1);
+          assert.equal(membershipRows.rows[0].role_in_committee, 'member');
+
+          // Automatic legacy plain-text email is NOT sent upon accept (welcome packages dispatched via Onboarding Studio)
+          assert.equal(emailServer.requests.length, 0);
         } finally {
           await new Promise((resolve) => server.close(resolve));
         }
@@ -784,3 +791,138 @@ test('onboarding APIs: visibility filtering and update permissions are enforced'
     await iamServer.close();
   }
 });
+
+test('onboarding candidates queue: lists unsent accepted candidates and marks sent on dispatch', async () => {
+  await prepareDatabase();
+  const iamServer = await startCaptureServer({ expectedPath: '/admin/roles/assign', statusCode: 200 });
+
+  try {
+    await withEnv(
+      {
+        IAM_SERVICE_URL: iamServer.baseUrl,
+        IAM_SERVICE_AUTH_TOKEN: 'iam-service-token',
+        IAM_SERVICE_TIMEOUT_MS: '1000',
+        HR_ACCEPT_GOVERNANCE_MODE: 'mode_b',
+      },
+      async () => {
+        const app = loadFreshApp();
+        const server = await createServer(app);
+
+        try {
+          const campaign = await createCampaign({
+            server,
+            committeeId: IDS.committees.hr,
+            actor: ACTORS.officerGlobal,
+          });
+
+          const sub1 = await submitApplication({
+            server,
+            campaignId: campaign.payload.campaign.id,
+            applicant: ACTORS.memberAi,
+          });
+
+          await moveToFinalReview({
+            server,
+            applicationId: sub1.payload.application.id,
+            actor: ACTORS.leadHr,
+          });
+
+          const accepted = await acceptApplication({
+            server,
+            applicationId: sub1.payload.application.id,
+            actor: ACTORS.officerGlobal,
+          });
+          assert.equal(accepted.response.status, 200);
+
+          // 1. Check GET /core/hr/onboarding/candidates defaults to unsent
+          const listPath = '/core/hr/onboarding/candidates';
+          const hrHeaders = signedHeaders({
+            method: 'GET',
+            path: listPath,
+            userId: ACTORS.leadHr.userId,
+            userEmail: ACTORS.leadHr.userEmail,
+            userRole: ACTORS.leadHr.userRole,
+            scopeType: ACTORS.leadHr.scopeType,
+            scopeId: ACTORS.leadHr.scopeId,
+          });
+
+          const res = await requestJson(server, {
+            method: 'GET',
+            path: listPath,
+            headers: hrHeaders,
+          });
+
+          assert.equal(res.response.status, 200);
+          assert.equal(res.payload.success, true);
+          assert.equal(res.payload.summary.totalAccepted, 1);
+          assert.equal(res.payload.summary.unsentCount, 1);
+          assert.equal(res.payload.summary.sentCount, 0);
+          assert.equal(res.payload.candidates.length, 1);
+          assert.equal(res.payload.candidates[0].id, sub1.payload.application.id);
+          assert.equal(res.payload.candidates[0].welcomeEmailSent, false);
+
+          // 2. Mark welcome email sent via POST /core/hr/applications/mark-welcome-sent
+          const markPath = '/core/hr/applications/mark-welcome-sent';
+          const markHeaders = signedHeaders({
+            method: 'POST',
+            path: markPath,
+            userId: ACTORS.officerGlobal.userId,
+            userEmail: ACTORS.officerGlobal.userEmail,
+            userRole: ACTORS.officerGlobal.userRole,
+            scopeType: ACTORS.officerGlobal.scopeType,
+            scopeId: ACTORS.officerGlobal.scopeId,
+          });
+
+          const markRes = await requestJson(server, {
+            method: 'POST',
+            path: markPath,
+            headers: markHeaders,
+            body: { applicationIds: [sub1.payload.application.id] },
+          });
+
+          assert.equal(markRes.response.status, 200);
+          assert.equal(markRes.payload.updatedCount, 1);
+
+          // 3. Query queue again: unsent count is now 0, sent count is 1
+          const resAfter = await requestJson(server, {
+            method: 'GET',
+            path: listPath,
+            headers: hrHeaders,
+          });
+
+          assert.equal(resAfter.response.status, 200);
+          assert.equal(resAfter.payload.summary.totalAccepted, 1);
+          assert.equal(resAfter.payload.summary.unsentCount, 0);
+          assert.equal(resAfter.payload.summary.sentCount, 1);
+          assert.equal(resAfter.payload.candidates.length, 0); // default welcomeEmailSent=false
+
+          // 4. Query with welcomeEmailSent=all returns the candidate with welcomeEmailSent=true
+          const allPath = '/core/hr/onboarding/candidates?welcomeEmailSent=all';
+          const resAll = await requestJson(server, {
+            method: 'GET',
+            path: allPath,
+            headers: signedHeaders({
+              method: 'GET',
+              path: listPath,
+              userId: ACTORS.leadHr.userId,
+              userEmail: ACTORS.leadHr.userEmail,
+              userRole: ACTORS.leadHr.userRole,
+              scopeType: ACTORS.leadHr.scopeType,
+              scopeId: ACTORS.leadHr.scopeId,
+            }),
+          });
+
+          assert.equal(resAll.response.status, 200);
+          assert.equal(resAll.payload.candidates.length, 1);
+          assert.equal(resAll.payload.candidates[0].welcomeEmailSent, true);
+          assert.ok(resAll.payload.candidates[0].welcomeEmailSentAt);
+        } finally {
+          await new Promise((resolve) => server.close(resolve));
+        }
+      }
+    );
+  } finally {
+    await iamServer.close();
+  }
+});
+

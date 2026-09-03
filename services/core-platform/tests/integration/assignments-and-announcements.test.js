@@ -128,7 +128,7 @@ test('assignments lifecycle: lead creates, member delivers work, lead grades sub
       body: JSON.stringify({
         title: 'PyTorch Image Classifier Exercise',
         description: 'Build a CNN on CIFAR-10 and upload your notebook or report.',
-        dueDate: '2026-09-01T23:59:59.000Z',
+        dueDate: new Date(Date.now() + 7 * 86400000).toISOString(),
         maxPoints: 100,
         attachmentUrl: 'https://res.cloudinary.com/demo/raw/upload/v12345/starter_code.zip',
         attachmentName: 'starter_code.zip',

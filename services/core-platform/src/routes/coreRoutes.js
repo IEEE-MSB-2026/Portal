@@ -76,6 +76,8 @@ router.get('/hr/applications', hrApplicationController.listApplications);
 router.patch('/hr/applications/:applicationId/stage', hrApplicationController.updateApplicationStage);
 router.post('/hr/applications/:applicationId/accept', hrApplicationController.acceptApplication);
 router.post('/hr/applications/:applicationId/reject', hrApplicationController.rejectApplication);
+router.post('/hr/applications/mark-welcome-sent', hrApplicationController.markWelcomeSent);
+router.get('/hr/onboarding/candidates', hrApplicationController.listOnboardingCandidates);
 router.get('/hr/onboarding/:userId', hrOnboardingController.listOnboardingByUser);
 router.patch('/hr/onboarding/:itemId', hrOnboardingController.updateOnboardingItem);
 router.get('/hr/reports/pipeline-summary', hrReportsController.getPipelineSummary);
