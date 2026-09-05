@@ -280,7 +280,7 @@ describe('Master End-to-End Portal Flow Verification', () => {
     });
     assert.equal(s3.status, 200);
 
-    // 4.4 HR Lead accepts candidate -> generates onboarding checklist
+    // 4.4 HR Lead accepts candidate
     const acceptRes = await fetch(`${gatewayBaseUrl}/api/core/hr/applications/${application.id}/accept`, {
       method: 'POST',
       headers: {
@@ -290,6 +290,19 @@ describe('Master End-to-End Portal Flow Verification', () => {
       body: JSON.stringify({ notes: 'Welcome to HR committee!' }),
     });
     assert.equal(acceptRes.status, 200);
+
+    // 4.4b HR sends welcome email -> generates onboarding checklist
+    const sendWelcomeRes = await fetch(`${gatewayBaseUrl}/api/core/hr/applications/mark-welcome-sent`, {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${adminAuth.token}`,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        applicationIds: [application.id],
+      }),
+    });
+    assert.equal(sendWelcomeRes.status, 200);
 
     // 4.5 Verify onboarding items created for user
     const onbRes = await fetch(`${gatewayBaseUrl}/api/core/hr/onboarding/member-ai-1`, {

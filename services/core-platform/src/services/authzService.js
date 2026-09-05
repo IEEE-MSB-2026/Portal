@@ -235,6 +235,30 @@ async function canPublishMediaAlbum({ identity, committeeId, membershipRole = nu
   return false;
 }
 
+async function isOperationsCommitteeLead(identity) {
+  if (!identity) return false;
+  if (isPrivilegedGlobalAccess(identity)) return true;
+  if (identity.scopeType === 'committee' && identity.scopeId && identity.role === 'lead') {
+    const committee = await committeesRepository.getCommitteeById(identity.scopeId);
+    if (committee?.slug === 'oc' || committee?.slug === 'operations') return true;
+  }
+  const currentUserId = identity?.userRefId || identity?.userId || identity?.externalUserId;
+  if (currentUserId) {
+    const ocCommittee = (await committeesRepository.getCommitteeBySlug('oc')) || (await committeesRepository.getCommitteeBySlug('operations'));
+    if (ocCommittee) {
+      const role = await committeesRepository.getMembershipRole(currentUserId, ocCommittee.id);
+      if (role === 'lead') return true;
+    }
+  }
+  return false;
+}
+
+async function canManageOperations({ identity, membershipRole = null }) {
+  if (isPrivilegedGlobalAccess(identity)) return true;
+  if (await isOperationsCommitteeLead(identity)) return true;
+  return membershipRole === 'lead';
+}
+
 async function listManageableMediaCommitteeIds(identity) {
   if (isPrivilegedGlobalAccess(identity) || (await isMediaCommitteeLead(identity))) return null;
   return listManageablePrCommitteeIds(identity);
@@ -246,6 +270,7 @@ module.exports = {
   canManageTask,
   canManageHrCommittee,
   canManageMediaCommittee,
+  canManageOperations,
   canManagePrCommittee,
   canManageCommitteeContent,
   canDeleteCommitteeContent,
@@ -259,6 +284,7 @@ module.exports = {
   isGlobalAccess,
   isHrCommitteeLead,
   isMediaCommitteeLead,
+  isOperationsCommitteeLead,
   isPrivilegedGlobalAccess,
   listManageableHrCommitteeIds,
   listManageableMediaCommitteeIds,

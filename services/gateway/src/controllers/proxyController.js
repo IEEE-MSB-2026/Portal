@@ -62,18 +62,18 @@ async function proxyToCore(req, res, next) {
 
 async function proxyToEvents(req, res, next) {
   const identity = resolveIdentity(req);
-  const rawTargetPath = req.originalUrl.replace(/^\/api\/events/, '') || '';
+  const [pathOnly, queryString] = (req.originalUrl.replace(/^\/api\/events/, '') || '').split('?');
 
   let fullApiPath;
-  if (rawTargetPath === '' || rawTargetPath === '/') {
+  if (pathOnly === '' || pathOnly === '/') {
     fullApiPath = '/api/v1/events';
-  } else if (rawTargetPath.startsWith('/admin') || rawTargetPath.startsWith('/health')) {
-    fullApiPath = `/api/v1${rawTargetPath}`;
+  } else if (pathOnly.startsWith('/admin') || pathOnly.startsWith('/health') || pathOnly.startsWith('/activities')) {
+    fullApiPath = `/api/v1${pathOnly}`;
   } else {
-    fullApiPath = `/api/v1/events${rawTargetPath.startsWith('/') ? '' : '/'}${rawTargetPath}`;
+    fullApiPath = `/api/v1/events${pathOnly.startsWith('/') ? '' : '/'}${pathOnly}`;
   }
 
-  const targetUrl = `${config.eventRegisterUrl}${fullApiPath}`;
+  const targetUrl = `${config.eventRegisterUrl}${fullApiPath}${queryString ? `?${queryString}` : ''}`;
 
   const signedClaimsHeaders = buildEventClaimsHeaders(
     identity,
