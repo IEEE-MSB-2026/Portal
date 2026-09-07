@@ -58,11 +58,29 @@ async function rotateRefreshToken(rawRefreshToken) {
   }
 
   if (tokenDoc.isRevoked) {
-    // Replay attack detected: revoke all tokens in this family immediately
-    await refreshTokenRepository.revokeFamily(tokenDoc.familyId);
-    const err = new Error('Refresh token reuse detected. Session terminated.');
-    err.status = 403;
-    throw err;
+    const graceMs = config.refreshTokenGraceMs !== undefined ? config.refreshTokenGraceMs : 15000;
+    const isWithinGrace = graceMs > 0 && tokenDoc.revokedAt && (Date.now() - tokenDoc.revokedAt.getTime() < graceMs);
+
+    if (!isWithinGrace) {
+      // Replay attack detected beyond grace window: revoke all tokens in this family immediately
+      await refreshTokenRepository.revokeFamily(tokenDoc.familyId);
+      const err = new Error('Refresh token reuse detected. Session terminated.');
+      err.status = 403;
+      throw err;
+    }
+
+    // Within grace window: issue rotated token for concurrent in-flight request
+    const nextToken = await refreshTokenRepository.create({
+      userId: tokenDoc.userId,
+      familyId: tokenDoc.familyId,
+      ttlDays: config.refreshTokenTtlDays,
+    });
+
+    return {
+      userId: tokenDoc.userId,
+      refreshToken: nextToken.refreshToken,
+      expiresAt: nextToken.expiresAt,
+    };
   }
 
   // Revoke used token

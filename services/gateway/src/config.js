@@ -8,6 +8,7 @@ module.exports = {
   jwtSecret: process.env.JWT_SECRET || 'portal-jwt-secret-key-production-2026',
   accessTokenTtl: process.env.ACCESS_TOKEN_TTL || '15m',
   refreshTokenTtlDays: parseInt(process.env.REFRESH_TOKEN_TTL_DAYS || '7', 10),
+  refreshTokenGraceMs: process.env.REFRESH_TOKEN_GRACE_MS !== undefined ? parseInt(process.env.REFRESH_TOKEN_GRACE_MS, 10) : 15000,
   gatewaySharedSecret: process.env.GATEWAY_SHARED_SECRET || 'dev-gateway-secret-change-in-prod',
   claimsHmacSecret: process.env.AUTH_CLAIMS_HMAC_SECRET || 'integration-claims-secret',
   corePlatformUrl: process.env.CORE_PLATFORM_URL || 'http://localhost:5070',

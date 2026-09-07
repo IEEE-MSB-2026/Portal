@@ -78,32 +78,34 @@ function resolveIdentity(req) {
     return req.identity;
   }
 
-  let identity = {
+  const authHeader = req.headers.authorization;
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    const token = authHeader.split(' ')[1];
+    try {
+      const decoded = jwt.verify(token, config.jwtSecret);
+      return {
+        userId: decoded.sub,
+        email: decoded.email,
+        role: decoded.role || 'member',
+        scopeType: decoded.scopeType || 'global',
+        scopeId: decoded.scopeId || 'global',
+        committeeId: decoded.committeeId || null,
+        committeeSlug: decoded.committeeSlug || null,
+      };
+    } catch (err) {
+      const authErr = new Error('Invalid or expired token');
+      authErr.status = 401;
+      throw authErr;
+    }
+  }
+
+  return {
     userId: 'guest-1',
     email: 'guest@ieee.local',
     role: 'visitor',
     scopeType: 'global',
     scopeId: 'global',
   };
-
-  const authHeader = req.headers.authorization;
-  if (authHeader && authHeader.startsWith('Bearer ')) {
-    const token = authHeader.split(' ')[1];
-    try {
-      const decoded = jwt.verify(token, config.jwtSecret);
-      identity = {
-        userId: decoded.sub,
-        email: decoded.email,
-        role: decoded.role || 'member',
-        scopeType: decoded.scopeType || 'global',
-        scopeId: decoded.scopeId || 'global',
-      };
-    } catch {
-      // Fallback
-    }
-  }
-
-  return identity;
 }
 
 module.exports = {

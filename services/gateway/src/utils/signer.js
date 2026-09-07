@@ -69,11 +69,14 @@ function buildEventClaimsHeaders(firstArg, secretArg) {
   }
   secret = secretArg || config.claimsHmacSecret;
 
+  const effectiveScopeType = scopeType === 'event' ? 'event' : 'global';
+  const effectiveScopeId = effectiveScopeType === 'event' ? scopeId : null;
+
   const exp = Math.floor(Date.now() / 1000) + expSeconds;
   const payload = {
     role: role || 'admin',
-    scope_type: scopeType || 'global',
-    scope_id: scopeType === 'global' ? null : scopeId,
+    scope_type: effectiveScopeType,
+    scope_id: effectiveScopeId,
     exp,
   };
   if (firstArg?.userId || firstArg?.sub) {

@@ -65,7 +65,8 @@ function initPgMemPool() {
       family_id UUID NOT NULL,
       is_revoked BOOLEAN NOT NULL DEFAULT FALSE,
       expires_at TIMESTAMPTZ NOT NULL,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      revoked_at TIMESTAMPTZ DEFAULT NULL
     );
 
     CREATE TABLE IF NOT EXISTS password_reset_otps (

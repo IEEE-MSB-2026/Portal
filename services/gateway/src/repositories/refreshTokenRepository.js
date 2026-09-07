@@ -36,7 +36,7 @@ async function findByRawToken(rawToken) {
   }
 
   const res = await pool.query(
-    'SELECT id, user_id, family_id, is_revoked, expires_at FROM auth_refresh_tokens WHERE token_hash = $1 LIMIT 1',
+    'SELECT id, user_id, family_id, is_revoked, expires_at, revoked_at FROM auth_refresh_tokens WHERE token_hash = $1 LIMIT 1',
     [tokenHash]
   );
   const row = res.rows[0];
@@ -48,6 +48,7 @@ async function findByRawToken(rawToken) {
     familyId: row.family_id,
     isRevoked: row.is_revoked,
     expiresAt: new Date(row.expires_at),
+    revokedAt: row.revoked_at ? new Date(row.revoked_at) : null,
   };
 }
 
@@ -57,7 +58,7 @@ async function revokeById(id) {
     throw new Error('Database connection pool is not available');
   }
 
-  await pool.query('UPDATE auth_refresh_tokens SET is_revoked = TRUE WHERE id = $1', [id]);
+  await pool.query('UPDATE auth_refresh_tokens SET is_revoked = TRUE, revoked_at = NOW() WHERE id = $1', [id]);
 }
 
 async function revokeFamily(familyId) {

@@ -3,7 +3,12 @@ const { resolveIdentity } = require('../middlewares/authenticate');
 const { buildCoreGatewayHeaders, buildEventClaimsHeaders } = require('../utils/signer');
 
 async function proxyToCore(req, res, next) {
-  const identity = resolveIdentity(req);
+  let identity;
+  try {
+    identity = resolveIdentity(req);
+  } catch (err) {
+    return res.status(err.status || 401).json({ error: err.message || 'Invalid or expired token' });
+  }
   const rawTargetPath = req.originalUrl.replace('/api/core', '') || '/';
 
   const [pathOnly, queryString] = rawTargetPath.split('?');
@@ -61,7 +66,12 @@ async function proxyToCore(req, res, next) {
 }
 
 async function proxyToEvents(req, res, next) {
-  const identity = resolveIdentity(req);
+  let identity;
+  try {
+    identity = resolveIdentity(req);
+  } catch (err) {
+    return res.status(err.status || 401).json({ error: err.message || 'Invalid or expired token' });
+  }
   const [pathOnly, queryString] = (req.originalUrl.replace(/^\/api\/events/, '') || '').split('?');
 
   let fullApiPath;
@@ -124,7 +134,12 @@ async function proxyToEvents(req, res, next) {
 }
 
 async function proxyToFiles(req, res, next) {
-  const identity = resolveIdentity(req);
+  let identity;
+  try {
+    identity = resolveIdentity(req);
+  } catch (err) {
+    return res.status(err.status || 401).json({ error: err.message || 'Invalid or expired token' });
+  }
   const [pathOnly, queryString] = req.originalUrl.split('?');
   const targetUrl = `${config.fileServiceUrl}${pathOnly}${queryString ? `?${queryString}` : ''}`;
 

@@ -5,6 +5,7 @@ function setRefreshCookie(res, refreshToken, expiresAt) {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
     sameSite: 'lax',
+    path: '/api/auth',
     expires: expiresAt,
   });
 }
@@ -83,7 +84,7 @@ async function logout(req, res, next) {
   try {
     const rawRefreshToken = req.cookies?.refreshToken || req.body?.refreshToken;
     await authService.logout(rawRefreshToken);
-    res.clearCookie('refreshToken');
+    res.clearCookie('refreshToken', { path: '/api/auth' });
     res.json({ message: 'Logged out successfully' });
   } catch (err) {
     next(err);

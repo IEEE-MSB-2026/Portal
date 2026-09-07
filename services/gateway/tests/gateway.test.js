@@ -5,7 +5,7 @@ const jwt = require('jsonwebtoken');
 
 const app = require('../src/app');
 const config = require('../src/config');
-const { closePool } = require('../src/db/pool');
+const { getPool, closePool } = require('../src/db/pool');
 const { buildCoreGatewayHeaders, buildEventClaimsHeaders } = require('../src/utils/signer');
 
 describe('Gateway & IAM Service Tests', () => {
@@ -154,7 +154,7 @@ describe('Gateway & IAM Service Tests', () => {
     assert.ok(forbiddenBody.error.includes('not possess'));
   });
 
-  test('Refresh Token Rotation: POST /api/auth/refresh rotates token and detects reuse', async () => {
+  test('Refresh Token Rotation: POST /api/auth/refresh rotates token, allows grace window, and detects stale reuse', async () => {
     const loginRes = await fetch(`${baseUrl}/api/auth/login`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -162,6 +162,10 @@ describe('Gateway & IAM Service Tests', () => {
     });
     const { refreshToken: firstRefreshToken } = await loginRes.json();
     assert.ok(firstRefreshToken);
+
+    // Verify cookie path is restricted to /api/auth
+    const setCookie = loginRes.headers.get('set-cookie');
+    assert.ok(setCookie && setCookie.includes('Path=/api/auth'));
 
     // 1. First refresh succeeds and rotates token
     const refreshRes = await fetch(`${baseUrl}/api/auth/refresh`, {
@@ -176,7 +180,20 @@ describe('Gateway & IAM Service Tests', () => {
     assert.ok(refreshBody.refreshToken);
     assert.notEqual(refreshBody.refreshToken, firstRefreshToken);
 
-    // 2. Replay attack: reusing the first refresh token must trigger reuse detection and return 403
+    // 2. Concurrent request within grace window succeeds without terminating session
+    const concurrentRes = await fetch(`${baseUrl}/api/auth/refresh`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ refreshToken: firstRefreshToken }),
+    });
+    assert.equal(concurrentRes.status, 200);
+
+    // 3. Stale replay attack beyond grace window: trigger reuse detection and return 403
+    const pool = getPool();
+    await pool.query('UPDATE auth_refresh_tokens SET revoked_at = $1 WHERE is_revoked = TRUE', [
+      new Date(Date.now() - 30000),
+    ]);
+
     const replayRes = await fetch(`${baseUrl}/api/auth/refresh`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -272,6 +289,22 @@ describe('Gateway & IAM Service Tests', () => {
       }),
     });
     assert.equal(resetRes.status, 200);
+  });
+
+  test('Proxy to Core: returns 401 when invalid or expired Bearer token is provided', async () => {
+    const expiredToken = jwt.sign(
+      { sub: 'test-user', email: 'test@ieee.local' },
+      config.jwtSecret,
+      { expiresIn: '-10s' }
+    );
+
+    const res = await fetch(`${baseUrl}/api/core/hr/campaigns`, {
+      headers: { authorization: `Bearer ${expiredToken}` },
+    });
+
+    assert.equal(res.status, 401);
+    const body = await res.json();
+    assert.ok(body.error.includes('expired') || body.error.includes('Invalid'));
   });
 
   test('Signer: buildCoreGatewayHeaders generates valid HMAC signature headers', () => {
