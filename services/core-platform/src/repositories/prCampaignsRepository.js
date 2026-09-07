@@ -382,7 +382,7 @@ async function listRecipientsForSegment({
   recipientUserIds = [],
   customRecipients = [],
 }) {
-  if (segmentType === 'custom_sheet' && Array.isArray(customRecipients)) {
+  if ((segmentType === 'custom_sheet' || segmentType === 'custom' || segmentType === 'event_attendees') && Array.isArray(customRecipients)) {
     return customRecipients
       .filter((r) => r && (r.email || r['user.email'] || r.Email || r['E-mail']))
       .map((r) => {
@@ -403,13 +403,19 @@ async function listRecipientsForSegment({
         }
         delete customFields.customFields;
 
+        const attachments = Array.isArray(r.attachments)
+          ? r.attachments
+          : (Array.isArray(customFields.attachments) ? customFields.attachments : []);
+
         return {
-          userId: null,
+          userId: r.userId || null,
           email: String(rawEmail).trim().toLowerCase(),
           name: String(name).trim(),
           committeeName: String(committeeName).trim(),
           role: r.role || 'recipient',
+          participantId: r.participantId || customFields.participantId || null,
           customFields,
+          attachments,
         };
       });
   }

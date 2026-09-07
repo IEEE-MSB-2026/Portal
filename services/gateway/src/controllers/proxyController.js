@@ -87,14 +87,24 @@ async function proxyToEvents(req, res, next) {
       'user-agent': req.headers['user-agent'] || 'IEEE-Portal-Gateway/1.0',
     };
 
+    let bodyData = undefined;
+    if (['POST', 'PUT', 'PATCH'].includes(req.method)) {
+      if (req.headers['content-type'] && req.headers['content-type'].includes('multipart/form-data')) {
+        const chunks = [];
+        for await (const chunk of req) {
+          chunks.push(chunk);
+        }
+        bodyData = Buffer.concat(chunks);
+      } else if (Object.keys(req.body || {}).length > 0) {
+        bodyData = JSON.stringify(req.body);
+      }
+    }
+
     const fetchOptions = {
       method: req.method,
       headers: forwardHeaders,
+      body: bodyData,
     };
-
-    if (['POST', 'PUT', 'PATCH'].includes(req.method) && Object.keys(req.body || {}).length > 0) {
-      fetchOptions.body = JSON.stringify(req.body);
-    }
 
     const response = await fetch(targetUrl, fetchOptions);
     const contentType = response.headers.get('content-type') || '';

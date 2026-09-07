@@ -188,7 +188,7 @@ async function searchUsers(searchTerm, limit = 20) {
     `
       SELECT id, email, name, avatar_url, membership_id, default_role, default_scope_type, default_scope_id, created_at
       FROM users
-      WHERE LOWER(name) LIKE $1 OR LOWER(email) LIKE $1
+      WHERE LOWER(name) LIKE $1 OR LOWER(email) LIKE $1 OR id::text LIKE $1
       ORDER BY name ASC
       LIMIT $2
     `,

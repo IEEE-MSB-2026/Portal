@@ -76,6 +76,9 @@ function buildEventClaimsHeaders(firstArg, secretArg) {
     scope_id: scopeType === 'global' ? null : scopeId,
     exp,
   };
+  if (firstArg?.userId || firstArg?.sub) {
+    payload.user_id = firstArg.userId || firstArg.sub;
+  }
   const rawClaims = Buffer.from(JSON.stringify(payload), 'utf8').toString('base64url');
   const signature = crypto
     .createHmac('sha256', secret)

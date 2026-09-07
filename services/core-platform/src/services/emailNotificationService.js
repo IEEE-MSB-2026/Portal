@@ -107,7 +107,7 @@ function buildPrCampaignText({
   return lines.join('\n');
 }
 
-function buildPayload({ recipientEmail, subject, text, html = null, eventType, idempotencyKey }) {
+function buildPayload({ recipientEmail, subject, text, html = null, attachments = [], eventType, idempotencyKey }) {
   const payload = {
     schemaVersion: '1.0',
     correlationId: randomUUID(),
@@ -120,6 +120,13 @@ function buildPayload({ recipientEmail, subject, text, html = null, eventType, i
   };
   if (html) {
     payload.html = html;
+  }
+  if (Array.isArray(attachments) && attachments.length > 0) {
+    payload.attachments = attachments.map((a) => ({
+      filename: a.filename,
+      mimeType: a.mimeType || 'application/octet-stream',
+      content: a.content || a.contentBase64 || '',
+    }));
   }
   return payload;
 }
@@ -430,6 +437,8 @@ async function sendPrCampaignDispatchNotifications({
         subject: candidate.subject || subject,
         text: candidate.text || buildPrCampaignText({ campaignTitle, campaignBody }),
         html: candidate.html || null,
+        attachments: candidate.attachments || [],
+        participantId: candidate.participantId || null,
       });
     } else {
       items.push({
@@ -438,6 +447,8 @@ async function sendPrCampaignDispatchNotifications({
         subject,
         text: buildPrCampaignText({ campaignTitle, campaignBody }),
         html: null,
+        attachments: [],
+        participantId: null,
       });
     }
   }
@@ -484,6 +495,7 @@ async function sendPrCampaignDispatchNotifications({
         subject: item.subject,
         text: item.text,
         html: item.html,
+        attachments: item.attachments || [],
         eventType: 'core.pr.campaign.dispatched',
         idempotencyKey: `core-pr-campaign:${campaignId}:${item.email}`,
       });
@@ -499,6 +511,7 @@ async function sendPrCampaignDispatchNotifications({
         ...result,
         recipientEmail: item.email,
         name: item.name || 'Member',
+        participantId: item.participantId || null,
         sentAt: new Date().toISOString(),
       };
     }));

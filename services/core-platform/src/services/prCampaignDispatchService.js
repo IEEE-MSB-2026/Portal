@@ -237,6 +237,8 @@ async function dispatchCampaign({
       subject: interpSubject,
       text: interpBody,
       html: htmlBody,
+      attachments: r.attachments || r.customFields?.attachments || [],
+      participantId: r.participantId || r.customFields?.participantId || null,
     });
   }
 
@@ -301,6 +303,34 @@ async function dispatchCampaign({
         }
         if (appIds.length > 0) {
           await hrApplicationsRepository.markWelcomeEmailsSent(appIds);
+        }
+      }
+
+      const isTicketDispatch = meta?.category === 'event_ticket_dispatch' || meta?.source === 'operations_studio';
+      if (isTicketDispatch && meta?.eventId) {
+        let participantIds = (notification.results || [])
+          .filter((res) => res.ok && res.participantId)
+          .map((res) => res.participantId);
+
+        if (participantIds.length === 0 && Array.isArray(meta?.participantIds)) {
+          participantIds = meta.participantIds;
+        }
+
+        if (participantIds.length === 0 && Array.isArray(customRecipients)) {
+          participantIds = customRecipients
+            .map((r) => r.participantId || r.customFields?.participantId)
+            .filter(Boolean);
+        }
+
+        if (participantIds.length > 0) {
+          const eventRegisterUrl = process.env.EVENT_REGISTER_SERVICE_URL || 'http://localhost:5050';
+          await fetch(`${eventRegisterUrl}/api/events/${meta.eventId}/qr/dispatch-callback`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ participantIds }),
+          }).catch((err) => {
+            console.error('Failed to notify event-register dispatch callback:', err.message);
+          });
         }
       }
     } catch {
