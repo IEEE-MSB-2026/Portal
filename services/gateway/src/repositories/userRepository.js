@@ -16,12 +16,27 @@ function buildScopeLabel(role, scopeType, committeeSlug) {
   return `${roleLabel} (${capitalize(scopeType)})`;
 }
 
+const ROLE_RANK = {
+  admin: 1,
+  officer: 2,
+  lead: 3,
+  publisher: 4,
+  event_organizer: 4,
+  event_scanner: 5,
+  scanner: 5,
+  member: 6,
+  applicant: 7,
+  hr: 8,
+};
+
 function formatAvailableScopes(rows) {
-  // Sort rows so that 'lead' comes before 'member' and 'member' before 'hr' if both exist
-  const roleRank = { lead: 1, member: 2, hr: 3 };
-  const sorted = [...rows].sort((a, b) => {
-    const rankA = roleRank[a.role] || 99;
-    const rankB = roleRank[b.role] || 99;
+  // Exclude any obsolete global member roles
+  const filtered = rows.filter((r) => !(r.role === 'member' && r.scope_type === 'global'));
+
+  // Sort rows by role ranking hierarchy
+  const sorted = [...filtered].sort((a, b) => {
+    const rankA = ROLE_RANK[a.role] || 99;
+    const rankB = ROLE_RANK[b.role] || 99;
     return rankA - rankB;
   });
 
@@ -188,19 +203,28 @@ async function create({ email, password, name, membershipId = null, role = 'memb
       }
     }
 
+    const isGlobalMember = role === 'member' && (scopeType === 'global' || !committeeId);
+    const hasAssignedRole = Boolean(role && !isGlobalMember);
+
+    const initialRole = hasAssignedRole ? role : null;
+    const initialScopeType = hasAssignedRole ? (scopeType || (committeeId ? 'committee' : 'global')) : null;
+    const initialScopeId = hasAssignedRole ? (scopeId || committeeId || 'global') : null;
+
     await client.query('BEGIN');
 
     await client.query(
       `INSERT INTO users (id, email, password_hash, name, membership_id, default_role, default_scope_type, default_scope_id)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-      [userId, normalizedEmail, passwordHash, name, cleanMemId, role, scopeType, scopeId]
+      [userId, normalizedEmail, passwordHash, name, cleanMemId, initialRole, initialScopeType, initialScopeId]
     );
 
-    await client.query(
-      `INSERT INTO auth_user_roles (id, user_id, role, scope_type, scope_id, committee_id)
-       VALUES ($1, $2, $3, $4, $5, $6)`,
-      [roleId, userId, role, scopeType, scopeId, committeeId]
-    );
+    if (hasAssignedRole) {
+      await client.query(
+        `INSERT INTO auth_user_roles (id, user_id, role, scope_type, scope_id, committee_id)
+         VALUES ($1, $2, $3, $4, $5, $6)`,
+        [roleId, userId, initialRole, initialScopeType, initialScopeId, committeeId || null]
+      );
+    }
 
     await client.query('COMMIT');
   } catch (err) {

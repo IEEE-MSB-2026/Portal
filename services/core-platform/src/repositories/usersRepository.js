@@ -84,7 +84,7 @@ async function ensureUserRef({ externalUserId, email, name }) {
 
   const insertRes = await query(
     `INSERT INTO users (id, email, password_hash, name, default_role, default_scope_type, default_scope_id)
-     VALUES ($1, $2, $3, $4, 'member', 'global', 'global')
+     VALUES ($1, $2, $3, $4, NULL, NULL, NULL)
      ON CONFLICT (email) DO UPDATE SET name = EXCLUDED.name
      RETURNING id, email, name, avatar_url, membership_id, default_role, default_scope_type, default_scope_id`,
     [newId, normEmail, dummyHash, userName]

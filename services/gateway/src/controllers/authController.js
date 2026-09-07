@@ -66,7 +66,8 @@ async function switchContext(req, res, next) {
 async function refresh(req, res, next) {
   try {
     const rawRefreshToken = req.cookies?.refreshToken || req.body?.refreshToken;
-    const result = await authService.refreshTokens(rawRefreshToken);
+    const activeScopeId = req.body?.activeScopeId || req.query?.activeScopeId || null;
+    const result = await authService.refreshTokens(rawRefreshToken, activeScopeId);
     setRefreshCookie(res, result.refreshToken, result.expiresAt);
     res.json({
       token: result.token,

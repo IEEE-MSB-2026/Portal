@@ -2,6 +2,18 @@ const userRepository = require('../repositories/userRepository');
 const tokenService = require('./tokenService');
 const { verifyPassword } = require('../utils/passwordUtils');
 
+function resolveEffectiveScope(user, preferredScopeId = null) {
+  const scopes = user.availableScopes || [];
+  if (preferredScopeId) {
+    const match = scopes.find((s) => s.id === preferredScopeId || s.scopeId === preferredScopeId);
+    if (match) return match;
+  }
+  if (scopes.length > 0) {
+    return scopes[0]; // Highest ranking scope according to ROLE_RANK
+  }
+  return null;
+}
+
 async function login({ email, password }) {
   if (!email) {
     const err = new Error('Email is required');
@@ -23,17 +35,18 @@ async function login({ email, password }) {
     throw err;
   }
 
-  const defaultScope = (user.availableScopes || []).find(
-    (s) => (s.scopeId === user.defaultScopeId || s.committeeId === user.defaultScopeId) && s.role === user.defaultRole
-  );
-  const committeeSlug = defaultScope?.committeeSlug || null;
-  const committeeId = defaultScope?.committeeId || (user.defaultScopeType === 'committee' ? user.defaultScopeId : null);
+  const activeScope = resolveEffectiveScope(user);
+  const activeRole = activeScope ? activeScope.role : (user.defaultRole || 'visitor');
+  const activeScopeType = activeScope ? activeScope.scopeType : (user.defaultScopeType || 'global');
+  const activeScopeId = activeScope ? activeScope.scopeId : (user.defaultScopeId || 'global');
+  const committeeSlug = activeScope?.committeeSlug || null;
+  const committeeId = activeScope?.committeeId || (activeScopeType === 'committee' ? activeScopeId : null);
 
   const { token, refreshToken, expiresAt } = await tokenService.issueTokenPair({
     user,
-    role: user.defaultRole,
-    scopeType: user.defaultScopeType,
-    scopeId: user.defaultScopeId,
+    role: activeRole,
+    scopeType: activeScopeType,
+    scopeId: activeScopeId,
     committeeSlug,
   });
 
@@ -44,16 +57,18 @@ async function login({ email, password }) {
     expiresAt,
     user: {
       ...userData,
-      role: user.defaultRole,
-      scopeType: user.defaultScopeType,
-      scopeId: user.defaultScopeId,
+      role: activeRole,
+      scopeType: activeScopeType,
+      scopeId: activeScopeId,
       committeeId,
       committeeSlug,
+      activeScope: activeScope || null,
+      availableScopes: user.availableScopes || [],
     },
   };
 }
 
-async function register({ email, password, name, membershipId = null, role = 'member', scopeType, scopeId, committeeId }) {
+async function register({ email, password, name, membershipId = null, role = null, scopeType = null, scopeId = null, committeeId = null }) {
   if (!email || !password || !name) {
     const err = new Error('Name, email, and password are required');
     err.status = 400;
@@ -66,21 +81,23 @@ async function register({ email, password, name, membershipId = null, role = 'me
     name,
     membershipId,
     role,
-    scopeType: scopeType || (committeeId ? 'committee' : 'global'),
-    scopeId: scopeId || committeeId || 'global',
+    scopeType,
+    scopeId,
     committeeId,
   });
 
-  const defaultScope = (user.availableScopes || []).find(
-    (s) => (s.scopeId === user.defaultScopeId || s.committeeId === user.defaultScopeId) && s.role === user.defaultRole
-  );
-  const committeeSlug = defaultScope?.committeeSlug || null;
+  const activeScope = resolveEffectiveScope(user);
+  const activeRole = activeScope ? activeScope.role : (user.defaultRole || null);
+  const activeScopeType = activeScope ? activeScope.scopeType : (user.defaultScopeType || null);
+  const activeScopeId = activeScope ? activeScope.scopeId : (user.defaultScopeId || null);
+  const committeeSlug = activeScope?.committeeSlug || null;
+  const commId = activeScope?.committeeId || (activeScopeType === 'committee' ? activeScopeId : null);
 
   const { token, refreshToken, expiresAt } = await tokenService.issueTokenPair({
     user,
-    role: user.defaultRole,
-    scopeType: user.defaultScopeType,
-    scopeId: user.defaultScopeId,
+    role: activeRole,
+    scopeType: activeScopeType,
+    scopeId: activeScopeId,
     committeeSlug,
   });
 
@@ -91,11 +108,13 @@ async function register({ email, password, name, membershipId = null, role = 'me
     expiresAt,
     user: {
       ...userData,
-      role: user.defaultRole,
-      scopeType: user.defaultScopeType,
-      scopeId: user.defaultScopeId,
-      committeeId: user.defaultScopeType === 'committee' ? user.defaultScopeId : null,
+      role: activeRole,
+      scopeType: activeScopeType,
+      scopeId: activeScopeId,
+      committeeId: commId,
       committeeSlug,
+      activeScope: activeScope || null,
+      availableScopes: user.availableScopes || [],
     },
   };
 }
@@ -140,7 +159,7 @@ async function switchContext({ user, targetScopeId }) {
   };
 }
 
-async function refreshTokens(rawRefreshToken) {
+async function refreshTokens(rawRefreshToken, activeScopeId = null) {
   if (!rawRefreshToken) {
     const err = new Error('Refresh token required in cookie or body');
     err.status = 401;
@@ -155,17 +174,18 @@ async function refreshTokens(rawRefreshToken) {
     throw err;
   }
 
-  const defaultScope = (user.availableScopes || []).find(
-    (s) => (s.scopeId === user.defaultScopeId || s.committeeId === user.defaultScopeId) && s.role === user.defaultRole
-  );
-  const committeeSlug = defaultScope?.committeeSlug || null;
-  const committeeId = defaultScope?.committeeId || (user.defaultScopeType === 'committee' ? user.defaultScopeId : null);
+  const activeScope = resolveEffectiveScope(user, activeScopeId);
+  const activeRole = activeScope ? activeScope.role : (user.defaultRole || 'visitor');
+  const activeScopeType = activeScope ? activeScope.scopeType : (user.defaultScopeType || 'global');
+  const activeScopeIdVal = activeScope ? activeScope.scopeId : (user.defaultScopeId || 'global');
+  const committeeSlug = activeScope?.committeeSlug || null;
+  const committeeId = activeScope?.committeeId || (activeScopeType === 'committee' ? activeScopeIdVal : null);
 
   const token = tokenService.generateAccessToken({
     user,
-    role: user.defaultRole,
-    scopeType: user.defaultScopeType,
-    scopeId: user.defaultScopeId,
+    role: activeRole,
+    scopeType: activeScopeType,
+    scopeId: activeScopeIdVal,
     committeeSlug,
   });
 
@@ -176,11 +196,13 @@ async function refreshTokens(rawRefreshToken) {
     expiresAt,
     user: {
       ...userData,
-      role: user.defaultRole,
-      scopeType: user.defaultScopeType,
-      scopeId: user.defaultScopeId,
+      role: activeRole,
+      scopeType: activeScopeType,
+      scopeId: activeScopeIdVal,
       committeeId,
       committeeSlug,
+      activeScope: activeScope || null,
+      availableScopes: user.availableScopes || [],
     },
   };
 }

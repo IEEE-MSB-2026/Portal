@@ -39,7 +39,7 @@ async function main() {
         ('11111111-0000-4000-8000-000000000007', 'lead.media@ieee.local', '48b529d756e26809a43e6d9885e1c2e7:9f91ed2edf9e031e77311242b9bce3ab0baec08decc7a6b1b708c78f110cbfe33d1f13e61331e23fcefa3cb48ab93ce15736d37c8107b46e1555c1ccf2b5f683', 'Media Committee Lead', 'lead', 'committee', '66666666-6666-4666-8666-666666666666'),
         ('11111111-0000-4000-8000-000000000008', 'publisher@ieee.local', '48b529d756e26809a43e6d9885e1c2e7:9f91ed2edf9e031e77311242b9bce3ab0baec08decc7a6b1b708c78f110cbfe33d1f13e61331e23fcefa3cb48ab93ce15736d37c8107b46e1555c1ccf2b5f683', 'Content Publisher', 'publisher', 'global', 'global'),
         ('11111111-0000-4000-8000-000000000009', 'member.ai@ieee.local', '48b529d756e26809a43e6d9885e1c2e7:9f91ed2edf9e031e77311242b9bce3ab0baec08decc7a6b1b708c78f110cbfe33d1f13e61331e23fcefa3cb48ab93ce15736d37c8107b46e1555c1ccf2b5f683', 'AI Active Member', 'member', 'committee', '11111111-1111-4111-8111-111111111111'),
-        ('11111111-0000-4000-8000-000000000010', 'applicant@ieee.local', '48b529d756e26809a43e6d9885e1c2e7:9f91ed2edf9e031e77311242b9bce3ab0baec08decc7a6b1b708c78f110cbfe33d1f13e61331e23fcefa3cb48ab93ce15736d37c8107b46e1555c1ccf2b5f683', 'Prospective Applicant', 'member', 'global', 'global'),
+        ('11111111-0000-4000-8000-000000000010', 'applicant@ieee.local', '48b529d756e26809a43e6d9885e1c2e7:9f91ed2edf9e031e77311242b9bce3ab0baec08decc7a6b1b708c78f110cbfe33d1f13e61331e23fcefa3cb48ab93ce15736d37c8107b46e1555c1ccf2b5f683', 'Prospective Applicant', NULL, NULL, NULL),
         ('11111111-0000-4000-8000-000000000011', 'scanner@ieee.local', '48b529d756e26809a43e6d9885e1c2e7:9f91ed2edf9e031e77311242b9bce3ab0baec08decc7a6b1b708c78f110cbfe33d1f13e61331e23fcefa3cb48ab93ce15736d37c8107b46e1555c1ccf2b5f683', 'Event Checkin Scanner', 'event_scanner', 'global', 'global')
       ON CONFLICT (id) DO UPDATE SET
         email = EXCLUDED.email,
@@ -81,7 +81,6 @@ async function main() {
         -- member.ai has Member in AI + Member in RAS
         ('c9999999-9999-4999-8999-111111111111', '11111111-0000-4000-8000-000000000009', 'member', 'committee', '11111111-1111-4111-8111-111111111111', '11111111-1111-4111-8111-111111111111', TRUE),
         ('c9999999-9999-4999-8999-222222222222', '11111111-0000-4000-8000-000000000009', 'member', 'committee', '22222222-2222-4222-8222-222222222222', '22222222-2222-4222-8222-222222222222', TRUE),
-        ('caaaaaaa-aaaa-4aaa-8aaa-111111111111', '11111111-0000-4000-8000-000000000010', 'member', 'global', 'global', NULL, TRUE),
         ('cbbbbbbb-bbbb-4bbb-8bbb-111111111111', '11111111-0000-4000-8000-000000000011', 'event_scanner', 'global', 'global', NULL, TRUE)
       ON CONFLICT (user_id, role, scope_type, scope_id) DO UPDATE SET
         committee_id = EXCLUDED.committee_id,
