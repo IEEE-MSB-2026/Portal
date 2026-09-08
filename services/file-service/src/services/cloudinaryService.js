@@ -159,7 +159,52 @@ async function uploadBuffer({
   };
 }
 
+/**
+ * Destroy an asset in Cloudinary
+ * @param {Object} options
+ * @param {string} options.publicId - Cloudinary public_id of the asset
+ * @param {string} [options.resourceType='image'] - 'image', 'video', or 'raw'
+ */
+async function destroyAsset({ publicId, resourceType = 'image' }) {
+  if (!publicId) return { result: 'not_found' };
+
+  if (config.cloudinary.isConfigured) {
+    return new Promise((resolve, reject) => {
+      cloudinary.uploader.destroy(
+        publicId,
+        {
+          resource_type: resourceType,
+          invalidate: true,
+        },
+        (error, result) => {
+          if (error) return reject(error);
+          resolve(result);
+        }
+      );
+    });
+  }
+
+  // Mock destruction for test and dev environments without credentials
+  return { result: 'ok', mock: true, publicId };
+}
+
+/**
+ * Extract Cloudinary public_id from a secure/raw Cloudinary URL
+ * @param {string} url - Full Cloudinary URL
+ * @returns {string|null} - Extracted public_id
+ */
+function extractPublicIdFromUrl(url) {
+  if (typeof url !== 'string' || !url.trim()) return null;
+  const match = url.match(/\/upload\/(?:[^\/]+\/)*?(?:v\d+\/)?([^\?#]+)$/);
+  if (!match || !match[1]) return null;
+  const publicIdWithExt = match[1];
+  // Strip file extension
+  return publicIdWithExt.replace(/\.[a-zA-Z0-9]+$/, '');
+}
+
 module.exports = {
   createUploadSignature,
   uploadBuffer,
+  destroyAsset,
+  extractPublicIdFromUrl,
 };

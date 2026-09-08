@@ -192,3 +192,58 @@ test('hr observer: assigned hr observer can read workspace but cannot modify tas
     await new Promise((resolve) => server.close(resolve));
   }
 });
+
+test('committee lead who also holds HR role can delete committee resources', async () => {
+  await prepareDatabase();
+  const server = await createServer(app);
+
+  try {
+    // 1. Lead creates resource in AI committee
+    const resPath = `/core/committees/${IDS.committees.ai}/resources`;
+    const leadHeaders = signedHeaders({
+      method: 'POST',
+      path: resPath,
+      userId: 'lead-ai-1',
+      userEmail: 'lead.ai@ieee.local',
+      userRole: 'lead',
+      scopeType: 'committee',
+      scopeId: IDS.committees.ai,
+    });
+
+    const createRes = await fetch(`${getBaseUrl(server)}${resPath}`, {
+      method: 'POST',
+      headers: { ...leadHeaders, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        title: 'Resource To Delete',
+        url: 'https://res.cloudinary.com/demo/image/upload/v1234/test.png',
+        resourceType: 'link',
+      }),
+    });
+    assert.equal(createRes.status, 201);
+    const createdData = await createRes.json();
+    const resourceId = createdData.resource.id;
+
+    // 2. Lead deletes resource even if identity also has HR lead / hr role in system
+    const deletePath = `/core/committees/${IDS.committees.ai}/resources/${resourceId}`;
+    const deleteHeaders = signedHeaders({
+      method: 'DELETE',
+      path: deletePath,
+      userId: 'lead-ai-1',
+      userEmail: 'lead.ai@ieee.local',
+      userRole: 'lead',
+      scopeType: 'committee',
+      scopeId: IDS.committees.ai,
+    });
+
+    const delRes = await fetch(`${getBaseUrl(server)}${deletePath}`, {
+      method: 'DELETE',
+      headers: deleteHeaders,
+    });
+    assert.equal(delRes.status, 200);
+    const delData = await delRes.json();
+    assert.equal(delData.message, 'Resource deleted successfully');
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+

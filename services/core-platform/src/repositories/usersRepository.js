@@ -115,18 +115,54 @@ async function updateUserAvatar(userId, avatarData) {
     assetId = avatarData.cloudinaryAssetId || avatarData.cloudinary_asset_id || null;
   }
 
-  const result = await query(
-    `
-      UPDATE users
-      SET avatar_url = $2,
-          cloudinary_public_id = COALESCE($3, cloudinary_public_id),
-          cloudinary_asset_id = COALESCE($4, cloudinary_asset_id),
-          updated_at = NOW()
-      WHERE id = $1
-      RETURNING id, email, name, avatar_url, membership_id, cloudinary_public_id, cloudinary_asset_id
-    `,
-    [userId, url, publicId, assetId]
-  );
+  // Queue old avatar for deletion if replacing
+  try {
+    const existing = await query(
+      'SELECT avatar_url, cloudinary_public_id, cloudinary_asset_id FROM users WHERE id = $1',
+      [userId]
+    );
+    const oldAvatar = existing.rows[0];
+    if (oldAvatar?.avatar_url && oldAvatar.avatar_url !== url) {
+      const fileOutboxRepository = require('./fileOutboxRepository');
+      await fileOutboxRepository.queueFileDeletion({
+        fileAssetId: oldAvatar.cloudinary_asset_id,
+        cloudinaryPublicId: oldAvatar.cloudinary_public_id,
+        secureUrl: oldAvatar.avatar_url,
+        resourceType: 'image',
+      });
+    }
+  } catch (err) {
+    // Non-blocking outbox error
+  }
+
+  let result;
+  if (!url) {
+    result = await query(
+      `
+        UPDATE users
+        SET avatar_url = NULL,
+            cloudinary_public_id = NULL,
+            cloudinary_asset_id = NULL,
+            updated_at = NOW()
+        WHERE id = $1
+        RETURNING id, email, name, avatar_url, membership_id, cloudinary_public_id, cloudinary_asset_id
+      `,
+      [userId]
+    );
+  } else {
+    result = await query(
+      `
+        UPDATE users
+        SET avatar_url = $2,
+            cloudinary_public_id = COALESCE($3, cloudinary_public_id),
+            cloudinary_asset_id = COALESCE($4, cloudinary_asset_id),
+            updated_at = NOW()
+        WHERE id = $1
+        RETURNING id, email, name, avatar_url, membership_id, cloudinary_public_id, cloudinary_asset_id
+      `,
+      [userId, url, publicId, assetId]
+    );
+  }
 
   if (!result.rows[0]) return null;
   const row = result.rows[0];

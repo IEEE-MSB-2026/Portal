@@ -134,10 +134,36 @@ async function updateBrandAsset({
     updates.push(`category = $${values.length}`);
   }
   if (fileUrl !== undefined) {
+    try {
+      const existing = await query('SELECT file_url FROM media_brand_assets WHERE id = $1', [assetId]);
+      const oldUrl = existing.rows[0]?.file_url;
+      if (oldUrl && oldUrl !== fileUrl) {
+        const fileOutboxRepository = require('./fileOutboxRepository');
+        await fileOutboxRepository.queueFileDeletion({
+          secureUrl: oldUrl,
+          resourceType: 'raw',
+        });
+      }
+    } catch {
+      // Non-blocking outbox error
+    }
     values.push(fileUrl.trim());
     updates.push(`file_url = $${values.length}`);
   }
   if (thumbnailUrl !== undefined) {
+    try {
+      const existing = await query('SELECT thumbnail_url FROM media_brand_assets WHERE id = $1', [assetId]);
+      const oldThumbUrl = existing.rows[0]?.thumbnail_url;
+      if (oldThumbUrl && oldThumbUrl !== thumbnailUrl) {
+        const fileOutboxRepository = require('./fileOutboxRepository');
+        await fileOutboxRepository.queueFileDeletion({
+          secureUrl: oldThumbUrl,
+          resourceType: 'image',
+        });
+      }
+    } catch {
+      // Non-blocking outbox error
+    }
     values.push(thumbnailUrl ? thumbnailUrl.trim() : null);
     updates.push(`thumbnail_url = $${values.length}`);
   }
@@ -179,10 +205,37 @@ async function updateBrandAsset({
 }
 
 async function deleteBrandAsset(assetId) {
+  const existingRes = await query(
+    'SELECT file_url, thumbnail_url, file_format FROM media_brand_assets WHERE id = $1',
+    [assetId]
+  );
+  const existing = existingRes.rows[0];
+
   const result = await query(
     'DELETE FROM media_brand_assets WHERE id = $1 RETURNING id',
     [assetId]
   );
+
+  if (result.rowCount > 0 && existing) {
+    try {
+      const fileOutboxRepository = require('./fileOutboxRepository');
+      if (existing.file_url) {
+        await fileOutboxRepository.queueFileDeletion({
+          secureUrl: existing.file_url,
+          resourceType: ['jpg', 'jpeg', 'png', 'webp', 'svg'].includes((existing.file_format || '').toLowerCase()) ? 'image' : 'raw',
+        });
+      }
+      if (existing.thumbnail_url) {
+        await fileOutboxRepository.queueFileDeletion({
+          secureUrl: existing.thumbnail_url,
+          resourceType: 'image',
+        });
+      }
+    } catch {
+      // Non-blocking outbox error
+    }
+  }
+
   return result.rowCount > 0;
 }
 

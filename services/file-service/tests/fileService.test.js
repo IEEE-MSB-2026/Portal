@@ -39,7 +39,7 @@ describe('Cloudinary File Service Tests', () => {
     assert.ok(body.allowedFolders.includes('applications'));
     assert.equal(body.creditSavingPolicy.autoFormat, true);
     assert.equal(body.creditSavingPolicy.autoQuality, true);
-    assert.equal(body.creditSavingPolicy.maxImageSizeMb, 5);
+    assert.equal(body.creditSavingPolicy.maxImageSizeMb, 10);
   });
 
   test('POST /api/files/signature normalizes event_albums alias to media_albums', async () => {
@@ -205,5 +205,130 @@ describe('Cloudinary File Service Tests', () => {
     assert.equal(body.success, true);
     assert.ok(body.file.secureUrl);
     assert.equal(body.file.folder, 'ieee_portal/resources');
+  });
+
+  test('POST /api/files/assets rejects files exceeding 10MB limit with 400', async () => {
+    const res = await fetch(`${baseUrl}/api/files/assets`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-user-id': 'lead-1',
+        'x-user-role': 'lead',
+      },
+      body: JSON.stringify({
+        cloudinaryAssetId: 'test-oversized-asset',
+        cloudinaryPublicId: 'ieee_portal/resources/huge-file',
+        secureUrl: 'https://res.cloudinary.com/demo/image/upload/ieee_portal/resources/huge-file.pdf',
+        bytes: 12 * 1024 * 1024, // 12MB > 10MB
+        purpose: 'resources',
+      }),
+    });
+
+    assert.equal(res.status, 400);
+    const body = await res.json();
+    assert.ok(body.error.includes('10MB'));
+  });
+
+  test('POST /api/files/assets registers valid file <= 10MB and DELETE /assets/:id removes it', async () => {
+    const registerRes = await fetch(`${baseUrl}/api/files/assets`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-user-id': 'lead-1',
+        'x-user-role': 'lead',
+      },
+      body: JSON.stringify({
+        cloudinaryAssetId: 'test-valid-asset-123',
+        cloudinaryPublicId: 'ieee_portal/resources/valid-file',
+        secureUrl: 'https://res.cloudinary.com/demo/image/upload/ieee_portal/resources/valid-file.pdf',
+        bytes: 4 * 1024 * 1024, // 4MB
+        purpose: 'resources',
+      }),
+    });
+
+    assert.equal(registerRes.status, 201);
+    const regBody = await registerRes.json();
+    assert.equal(regBody.success, true);
+    const assetId = regBody.asset.id;
+
+    // Now delete by ID
+    const deleteRes = await fetch(`${baseUrl}/api/files/assets/${assetId}`, {
+      method: 'DELETE',
+      headers: {
+        'x-user-id': 'lead-1',
+        'x-user-role': 'lead',
+      },
+    });
+
+    assert.equal(deleteRes.status, 200);
+    const delBody = await deleteRes.json();
+    assert.equal(delBody.success, true);
+    assert.equal(delBody.deletedId, assetId);
+  });
+
+  test('DELETE /api/files/by-url deletes asset by Cloudinary URL', async () => {
+    const targetUrl = 'https://res.cloudinary.com/demo/image/upload/v123456/ieee_portal/avatars/old_avatar_999.png';
+    const res = await fetch(`${baseUrl}/api/files/by-url`, {
+      method: 'DELETE',
+      headers: {
+        'content-type': 'application/json',
+        'x-user-id': 'member-1',
+        'x-user-role': 'member',
+      },
+      body: JSON.stringify({ url: targetUrl }),
+    });
+
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.success, true);
+    assert.equal(body.publicId, 'ieee_portal/avatars/old_avatar_999');
+  });
+
+  test('POST /api/files/cleanup/process-deletions drains outbox deletions from file_assets', async () => {
+    const { query } = require('../src/db/pool');
+    const testPublicId = `ieee_portal/general/test_deletion_${Date.now()}`;
+    // Insert a test item into file_assets with status = 'pending_deletion'
+    const insertRes = await query(
+      `INSERT INTO file_assets (cloudinary_public_id, secure_url, resource_type, status, purpose)
+       VALUES ($1, $2, 'image', 'pending_deletion', 'cleanup')
+       RETURNING id`,
+      [testPublicId, `https://res.cloudinary.com/demo/image/upload/${testPublicId}.jpg`]
+    );
+    const testAssetId = insertRes.rows[0].id;
+
+    const res = await fetch(`${baseUrl}/api/files/cleanup/process-deletions`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-user-id': 'admin-1',
+        'x-user-role': 'admin',
+      },
+      body: JSON.stringify({ limit: 10 }),
+    });
+
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.success, true);
+    assert.ok(body.processedCount >= 1);
+
+    // Verify row was hard-deleted from file_assets upon successful destruction
+    const checkRes = await query('SELECT id FROM file_assets WHERE id = $1', [testAssetId]);
+    assert.equal(checkRes.rows.length, 0);
+  });
+
+  test('POST /api/files/cleanup/orphans supports ?dryRun=true parameter', async () => {
+    const res = await fetch(`${baseUrl}/api/files/cleanup/orphans?dryRun=true`, {
+      method: 'POST',
+      headers: {
+        'x-user-id': 'admin-1',
+        'x-user-role': 'admin',
+      },
+    });
+
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.success, true);
+    assert.equal(body.dryRun, true);
+    assert.ok(Array.isArray(body.orphans));
   });
 });

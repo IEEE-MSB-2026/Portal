@@ -1,4 +1,4 @@
-const { query } = require('../db/pool');
+const { query, getPool } = require('../db/pool');
 
 async function createAssignment({
   committeeId,
@@ -184,6 +184,19 @@ async function updateAssignment(assignmentId, {
     values.push(maxPoints);
   }
   if (attachmentUrl !== undefined) {
+    try {
+      const existing = await query('SELECT attachment_url FROM committee_assignments WHERE id = $1', [assignmentId]);
+      const oldAttachmentUrl = existing.rows[0]?.attachment_url;
+      if (oldAttachmentUrl && oldAttachmentUrl !== attachmentUrl) {
+        const fileOutboxRepository = require('./fileOutboxRepository');
+        await fileOutboxRepository.queueFileDeletion({
+          secureUrl: oldAttachmentUrl,
+          resourceType: 'raw',
+        });
+      }
+    } catch {
+      // Non-blocking outbox error
+    }
     fields.push(`attachment_url = $${idx++}`);
     values.push(attachmentUrl);
   }
@@ -209,15 +222,55 @@ async function updateAssignment(assignmentId, {
 }
 
 async function deleteAssignment(assignmentId) {
-  const result = await query(
-    `
-      DELETE FROM committee_assignments
-      WHERE id = $1
-      RETURNING id
-    `,
-    [assignmentId]
-  );
-  return result.rows[0] || null;
+  const client = await getPool().connect();
+  try {
+    await client.query('BEGIN');
+
+    // Retrieve assignment attachment and all cascading submission files before deleting
+    const assignRes = await client.query('SELECT attachment_url FROM committee_assignments WHERE id = $1', [assignmentId]);
+    const subsRes = await client.query('SELECT file_url FROM assignment_submissions WHERE assignment_id = $1', [assignmentId]);
+
+    const result = await client.query(
+      `
+        DELETE FROM committee_assignments
+        WHERE id = $1
+        RETURNING id
+      `,
+      [assignmentId]
+    );
+
+    if (result.rows[0]) {
+      const fileOutboxRepository = require('./fileOutboxRepository');
+
+      // Queue assignment attachment for deletion
+      if (assignRes.rows[0]?.attachment_url) {
+        await fileOutboxRepository.queueFileDeletion({
+          secureUrl: assignRes.rows[0].attachment_url,
+          resourceType: 'raw',
+          client,
+        });
+      }
+
+      // Queue all child submission files for deletion
+      for (const sub of subsRes.rows) {
+        if (sub.file_url) {
+          await fileOutboxRepository.queueFileDeletion({
+            secureUrl: sub.file_url,
+            resourceType: 'raw',
+            client,
+          });
+        }
+      }
+    }
+
+    await client.query('COMMIT');
+    return result.rows[0] || null;
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
 }
 
 async function upsertSubmission({
@@ -227,6 +280,24 @@ async function upsertSubmission({
   fileName = null,
   notes = null,
 }) {
+  // If replacing an existing submission, queue the old file for deletion
+  try {
+    const existing = await query(
+      'SELECT file_url FROM assignment_submissions WHERE assignment_id = $1 AND user_id = $2',
+      [assignmentId, userId]
+    );
+    const oldFileUrl = existing.rows[0]?.file_url;
+    if (oldFileUrl && oldFileUrl !== fileUrl) {
+      const fileOutboxRepository = require('./fileOutboxRepository');
+      await fileOutboxRepository.queueFileDeletion({
+        secureUrl: oldFileUrl,
+        resourceType: 'raw',
+      });
+    }
+  } catch {
+    // Non-blocking outbox error
+  }
+
   const result = await query(
     `
       INSERT INTO assignment_submissions (

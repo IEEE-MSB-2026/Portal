@@ -78,11 +78,25 @@ function requireCommitteeScope(committeeIdParam = 'committeeId') {
       return res.status(403).json({ error: 'Forbidden: Officer write access requires committee lead/member role' });
     }
 
-    // 3. HR Leads & HR Committee members have content management + read access
-    const isHRLead = await authzService.isHrCommitteeLead(req.identity);
+    // 3. Resolve user's database role in this committee
     const dbRole = req.identity.userRefId
       ? await committeesRepository.getMembershipRole(req.identity.userRefId, committeeId)
       : null;
+
+    // 4. Committee Leads for this committee always have full access (tasks, content, deletions)
+    const isCommitteeLead =
+      (req.identity.scopeType === 'committee' &&
+        req.identity.scopeId === committeeId &&
+        (req.identity.role === 'lead' || req.identity.role === 'chair')) ||
+      dbRole === 'lead';
+
+    if (isCommitteeLead) {
+      return next();
+    }
+
+    // 5. HR Leads & HR Committee members have cross-committee content management + read access
+    // for committees they do not lead
+    const isHRLead = await authzService.isHrCommitteeLead(req.identity);
     const isHR = req.identity.role === 'hr' || dbRole === 'hr' || isHRLead;
 
     if (isHR) {
@@ -100,12 +114,12 @@ function requireCommitteeScope(committeeIdParam = 'committeeId') {
       return next();
     }
 
-    // 4. If user is in committee scope matching this committee
+    // 6. If user is in committee scope matching this committee (as member)
     if (req.identity.scopeType === 'committee' && req.identity.scopeId === committeeId) {
       return next();
     }
 
-    // 5. Fallback: check database membership
+    // 7. Fallback: check database membership
     if (dbRole) {
       return next();
     }

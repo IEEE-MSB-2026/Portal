@@ -97,6 +97,7 @@ test('Branch Officers & Leadership Integration Tests', async (t) => {
       scopeId: 'global',
     });
 
+    const { query } = require('../../src/db/pool');
     const res = await requestJson(server, {
       method: 'POST',
       path: '/core/admin/officers',
@@ -105,6 +106,7 @@ test('Branch Officers & Leadership Integration Tests', async (t) => {
         name: 'Future Leader',
         role: 'Strategic Advisor',
         season: '2026/2027',
+        avatarUrl: 'https://res.cloudinary.com/demo/image/upload/v1/officer-lead.jpg',
         isCurrentSeason: false,
         email: 'future@ieee-menoufia.org',
         linkedinUrl: 'https://linkedin.com',
@@ -116,6 +118,7 @@ test('Branch Officers & Leadership Integration Tests', async (t) => {
     assert.equal(res.status, 201);
     assert.equal(res.body.officer.name, 'Future Leader');
     assert.equal(res.body.officer.season, '2026/2027');
+    assert.equal(res.body.officer.avatar_url || res.body.officer.avatarUrl, 'https://res.cloudinary.com/demo/image/upload/v1/officer-lead.jpg');
     createdOfficerId = res.body.officer.id;
   });
 
@@ -144,7 +147,8 @@ test('Branch Officers & Leadership Integration Tests', async (t) => {
     assert.equal(res.status, 400);
   });
 
-  await t.test('PATCH /core/admin/officers/:id updates officer details', async () => {
+  await t.test('PATCH /core/admin/officers/:id updates officer details and queues old avatar for deletion', async () => {
+    const { query } = require('../../src/db/pool');
     const headers = signedHeaders({
       method: 'PATCH',
       path: `/core/admin/officers/${createdOfficerId}`,
@@ -161,14 +165,25 @@ test('Branch Officers & Leadership Integration Tests', async (t) => {
       headers,
       body: {
         role: 'Senior Strategic Advisor',
+        avatarUrl: 'https://res.cloudinary.com/demo/image/upload/v2/officer-lead-updated.jpg',
       },
     });
 
     assert.equal(res.status, 200);
     assert.equal(res.body.officer.role, 'Senior Strategic Advisor');
+    assert.equal(res.body.officer.avatar_url || res.body.officer.avatarUrl, 'https://res.cloudinary.com/demo/image/upload/v2/officer-lead-updated.jpg');
+
+    // Verify old avatar was queued into file_assets with status 'pending_deletion'
+    const queueCheck = await query(
+      "SELECT status, secure_url FROM file_assets WHERE secure_url = $1",
+      ['https://res.cloudinary.com/demo/image/upload/v1/officer-lead.jpg']
+    );
+    assert.equal(queueCheck.rows.length, 1);
+    assert.equal(queueCheck.rows[0].status, 'pending_deletion');
   });
 
-  await t.test('DELETE /core/admin/officers/:id removes officer', async () => {
+  await t.test('DELETE /core/admin/officers/:id removes officer and queues avatar for deletion', async () => {
+    const { query } = require('../../src/db/pool');
     const headers = signedHeaders({
       method: 'DELETE',
       path: `/core/admin/officers/${createdOfficerId}`,
@@ -187,5 +202,13 @@ test('Branch Officers & Leadership Integration Tests', async (t) => {
 
     assert.equal(res.status, 200);
     assert.equal(res.body.id, createdOfficerId);
+
+    // Verify updated avatar was queued into file_assets with status 'pending_deletion'
+    const queueCheck = await query(
+      "SELECT status, secure_url FROM file_assets WHERE secure_url = $1",
+      ['https://res.cloudinary.com/demo/image/upload/v2/officer-lead-updated.jpg']
+    );
+    assert.equal(queueCheck.rows.length, 1);
+    assert.equal(queueCheck.rows[0].status, 'pending_deletion');
   });
 });

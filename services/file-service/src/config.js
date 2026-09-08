@@ -32,10 +32,10 @@ const config = {
     avatarTransform: 'f_auto,q_auto,c_fill,w_400,h_400,g_face',
     thumbnailTransform: 'f_auto,q_auto,c_limit,w_600,h_400',
 
-    // File size limits in megabytes
-    maxImageSizeMb: parsePositiveInt(process.env.MAX_IMAGE_SIZE_MB, 5),
-    maxDocSizeMb: parsePositiveInt(process.env.MAX_DOC_SIZE_MB, 15),
-    maxVideoSizeMb: parsePositiveInt(process.env.MAX_VIDEO_SIZE_MB, 25),
+    // Universal 10MB File Size Limits in megabytes (quota preservation)
+    maxImageSizeMb: parsePositiveInt(process.env.MAX_IMAGE_SIZE_MB, 10),
+    maxDocSizeMb: parsePositiveInt(process.env.MAX_DOC_SIZE_MB, 10),
+    maxVideoSizeMb: parsePositiveInt(process.env.MAX_VIDEO_SIZE_MB, 10),
 
     // Signature expiration in seconds
     signatureExpirySeconds: parsePositiveInt(process.env.SIGNATURE_EXPIRY_SECONDS, 3600),

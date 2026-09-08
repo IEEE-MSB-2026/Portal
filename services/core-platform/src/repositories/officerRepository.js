@@ -121,6 +121,19 @@ async function updateOfficer(id, data) {
     values.push(Boolean(data.isCurrentSeason));
   }
   if (data.avatarUrl !== undefined) {
+    try {
+      const existing = await pool.query('SELECT avatar_url FROM branch_officers WHERE id = $1', [id]);
+      const oldAvatarUrl = existing.rows[0]?.avatar_url;
+      if (oldAvatarUrl && oldAvatarUrl !== data.avatarUrl) {
+        const fileOutboxRepository = require('./fileOutboxRepository');
+        await fileOutboxRepository.queueFileDeletion({
+          secureUrl: oldAvatarUrl,
+          resourceType: 'image',
+        });
+      }
+    } catch {
+      // Non-blocking outbox error
+    }
     fields.push(`avatar_url = $${idx++}`);
     values.push(data.avatarUrl);
   }
@@ -164,8 +177,29 @@ async function updateOfficer(id, data) {
 }
 
 async function deleteOfficer(id) {
+  let existingAvatarUrl = null;
+  try {
+    const existing = await pool.query('SELECT avatar_url FROM branch_officers WHERE id = $1', [id]);
+    existingAvatarUrl = existing.rows[0]?.avatar_url || null;
+  } catch {
+    // Non-blocking outbox error
+  }
+
   const query = `DELETE FROM branch_officers WHERE id = $1 RETURNING id`;
   const { rows } = await pool.query(query, [id]);
+
+  if (rows[0] && existingAvatarUrl) {
+    try {
+      const fileOutboxRepository = require('./fileOutboxRepository');
+      await fileOutboxRepository.queueFileDeletion({
+        secureUrl: existingAvatarUrl,
+        resourceType: 'image',
+      });
+    } catch {
+      // Non-blocking outbox error
+    }
+  }
+
   return rows[0] || null;
 }
 

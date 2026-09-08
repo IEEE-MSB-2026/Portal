@@ -222,6 +222,19 @@ async function updateAlbum({
     updates.push(`description = $${values.length}`);
   }
   if (coverImageUrl !== undefined) {
+    try {
+      const existing = await query('SELECT cover_image_url FROM media_albums WHERE id = $1', [albumId]);
+      const oldUrl = existing.rows[0]?.cover_image_url;
+      if (oldUrl && oldUrl !== coverImageUrl) {
+        const fileOutboxRepository = require('./fileOutboxRepository');
+        await fileOutboxRepository.queueFileDeletion({
+          secureUrl: oldUrl,
+          resourceType: 'image',
+        });
+      }
+    } catch {
+      // Non-blocking outbox error
+    }
     values.push(coverImageUrl ? coverImageUrl.trim() : null);
     updates.push(`cover_image_url = $${values.length}`);
   }
@@ -274,8 +287,34 @@ async function deleteAlbum(albumId) {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
+
+    // Retrieve album cover and all album assets before deleting
+    const albumRes = await client.query('SELECT cover_image_url FROM media_albums WHERE id = $1', [albumId]);
+    const assetsRes = await client.query('SELECT asset_url, asset_type FROM media_album_assets WHERE album_id = $1', [albumId]);
+
     await client.query('DELETE FROM media_album_assets WHERE album_id = $1', [albumId]);
     const res = await client.query('DELETE FROM media_albums WHERE id = $1 RETURNING id', [albumId]);
+
+    // Queue for Cloudinary deletion
+    const fileOutboxRepository = require('./fileOutboxRepository');
+    if (albumRes.rows[0]?.cover_image_url) {
+      await fileOutboxRepository.queueFileDeletion({
+        secureUrl: albumRes.rows[0].cover_image_url,
+        resourceType: 'image',
+        client,
+      });
+    }
+
+    for (const row of assetsRes.rows) {
+      if (row.asset_url) {
+        await fileOutboxRepository.queueFileDeletion({
+          secureUrl: row.asset_url,
+          resourceType: row.asset_type || 'image',
+          client,
+        });
+      }
+    }
+
     await client.query('COMMIT');
     return res.rowCount > 0;
   } catch (err) {
@@ -319,10 +358,29 @@ async function addAlbumAsset({
 }
 
 async function deleteAlbumAsset({ albumId, assetId }) {
+  const assetRes = await query(
+    'SELECT asset_url, asset_type FROM media_album_assets WHERE id = $1 AND album_id = $2',
+    [assetId, albumId]
+  );
+  const asset = assetRes.rows[0];
+
   const result = await query(
     'DELETE FROM media_album_assets WHERE id = $1 AND album_id = $2 RETURNING id',
     [assetId, albumId]
   );
+
+  if (result.rowCount > 0 && asset?.asset_url) {
+    try {
+      const fileOutboxRepository = require('./fileOutboxRepository');
+      await fileOutboxRepository.queueFileDeletion({
+        secureUrl: asset.asset_url,
+        resourceType: asset.asset_type || 'image',
+      });
+    } catch {
+      // Non-blocking outbox error
+    }
+  }
+
   return result.rowCount > 0;
 }
 

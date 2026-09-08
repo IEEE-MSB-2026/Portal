@@ -129,6 +129,15 @@ async function updateResource(resourceId, committeeId, { title, description }) {
 }
 
 async function deleteResource(resourceId, committeeId) {
+  let lookupQuery = `SELECT url, resource_type FROM committee_resources WHERE id = $1`;
+  const lookupParams = [resourceId];
+  if (committeeId) {
+    lookupQuery += ` AND committee_id = $2`;
+    lookupParams.push(committeeId);
+  }
+  const existingRes = await query(lookupQuery, lookupParams);
+  const existing = existingRes.rows[0];
+
   let queryText = `DELETE FROM committee_resources WHERE id = $1`;
   const params = [resourceId];
   if (committeeId) {
@@ -137,6 +146,19 @@ async function deleteResource(resourceId, committeeId) {
   }
   queryText += ` RETURNING id`;
   const result = await query(queryText, params);
+
+  if (result.rowCount > 0 && existing?.url) {
+    try {
+      const fileOutboxRepository = require('./fileOutboxRepository');
+      await fileOutboxRepository.queueFileDeletion({
+        secureUrl: existing.url,
+        resourceType: existing.resource_type === 'video' ? 'video' : (existing.resource_type === 'document' ? 'raw' : 'image'),
+      });
+    } catch {
+      // Non-blocking outbox error
+    }
+  }
+
   return result.rowCount > 0;
 }
 

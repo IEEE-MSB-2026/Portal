@@ -44,7 +44,7 @@ async function proxyToCore(req, res, next) {
       headers: forwardHeaders,
     };
 
-    if (['POST', 'PUT', 'PATCH'].includes(req.method) && Object.keys(req.body || {}).length > 0) {
+    if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method) && Object.keys(req.body || {}).length > 0) {
       fetchOptions.body = JSON.stringify(req.body);
     }
 
@@ -162,7 +162,7 @@ async function proxyToFiles(req, res, next) {
     }
 
     let bodyData = undefined;
-    if (['POST', 'PUT', 'PATCH'].includes(req.method)) {
+    if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method)) {
       if (req.headers['content-type'] && req.headers['content-type'].includes('multipart/form-data')) {
         const chunks = [];
         for await (const chunk of req) {

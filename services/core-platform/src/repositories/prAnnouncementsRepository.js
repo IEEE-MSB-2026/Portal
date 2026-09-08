@@ -121,6 +121,19 @@ async function updateAnnouncement({
   }
 
   if (imageUrl !== undefined) {
+    try {
+      const existing = await query('SELECT image_url FROM pr_announcements WHERE id = $1', [announcementId]);
+      const oldUrl = existing.rows[0]?.image_url;
+      if (oldUrl && oldUrl !== imageUrl) {
+        const fileOutboxRepository = require('./fileOutboxRepository');
+        await fileOutboxRepository.queueFileDeletion({
+          secureUrl: oldUrl,
+          resourceType: 'image',
+        });
+      }
+    } catch {
+      // Non-blocking outbox error
+    }
     values.push(imageUrl || null);
     updates.push(`image_url = $${values.length}`);
   }
@@ -152,6 +165,12 @@ async function updateAnnouncement({
 }
 
 async function softDeleteAnnouncement({ announcementId, actorUserId, actorUserRefId }) {
+  const existing = await query(
+    'SELECT id, image_url FROM pr_announcements WHERE id = $1 AND deleted_at IS NULL',
+    [announcementId]
+  );
+  if (!existing.rows[0]) return null;
+
   const result = await query(
     `
       UPDATE pr_announcements
@@ -163,6 +182,19 @@ async function softDeleteAnnouncement({ announcementId, actorUserId, actorUserRe
   );
 
   if (!result.rows[0]) return null;
+
+  if (existing.rows[0].image_url) {
+    try {
+      const fileOutboxRepository = require('./fileOutboxRepository');
+      await fileOutboxRepository.queueFileDeletion({
+        secureUrl: existing.rows[0].image_url,
+        resourceType: 'image',
+      });
+    } catch {
+      // Non-blocking outbox error
+    }
+  }
+
   return getAnnouncementById(announcementId, { includeDeleted: true });
 }
 

@@ -14,10 +14,6 @@ const {
 setupTestEnv();
 const app = require('../../src/app');
 
-test.after(async () => {
-  await closePool();
-});
-
 test('user profile: invalid UUID returns 400', async () => {
   await prepareDatabase();
   const server = await createServer(app);
@@ -252,4 +248,60 @@ test('user profile: PATCH /core/me/profile updates bio, university, faculty, dep
   } finally {
     server.close();
   }
+});
+
+test('user avatar: updating and clearing avatar clears cloudinary IDs and queues previous avatar', async () => {
+  await prepareDatabase();
+  const usersRepository = require('../../src/repositories/usersRepository');
+  const { query } = require('../../src/db/pool');
+  const userId = IDS.users.memberAi;
+
+  // 1. Set initial avatar with Cloudinary tracking IDs
+  const initial = await usersRepository.updateUserAvatar(userId, {
+    avatarUrl: 'https://res.cloudinary.com/demo/image/upload/v1/initial-user-avatar.jpg',
+    cloudinaryPublicId: 'avatars/initial-user-avatar',
+    cloudinaryAssetId: 'asset_initial_avatar',
+  });
+  assert.equal(initial.avatarUrl, 'https://res.cloudinary.com/demo/image/upload/v1/initial-user-avatar.jpg');
+
+  // 2. Replace avatar with updated image
+  const updated = await usersRepository.updateUserAvatar(userId, {
+    avatarUrl: 'https://res.cloudinary.com/demo/image/upload/v2/new-user-avatar.jpg',
+    cloudinaryPublicId: 'avatars/new-user-avatar',
+    cloudinaryAssetId: 'asset_new_avatar',
+  });
+  assert.equal(updated.avatarUrl, 'https://res.cloudinary.com/demo/image/upload/v2/new-user-avatar.jpg');
+
+  // Verify initial avatar was queued into file_assets with status 'pending_deletion'
+  const queueCheck1 = await query(
+    "SELECT status, secure_url FROM file_assets WHERE secure_url = $1",
+    ['https://res.cloudinary.com/demo/image/upload/v1/initial-user-avatar.jpg']
+  );
+  assert.equal(queueCheck1.rows.length, 1);
+  assert.equal(queueCheck1.rows[0].status, 'pending_deletion');
+
+  // 3. Clear avatar by passing null
+  const cleared = await usersRepository.updateUserAvatar(userId, null);
+  assert.equal(cleared.avatarUrl, null);
+
+  // Verify database record has avatar_url, cloudinary_public_id, and cloudinary_asset_id cleared to NULL
+  const dbUser = await query(
+    'SELECT avatar_url, cloudinary_public_id, cloudinary_asset_id FROM users WHERE id = $1',
+    [userId]
+  );
+  assert.equal(dbUser.rows[0].avatar_url, null);
+  assert.equal(dbUser.rows[0].cloudinary_public_id, null);
+  assert.equal(dbUser.rows[0].cloudinary_asset_id, null);
+
+  // Verify second avatar was also queued for Cloudinary deletion
+  const queueCheck2 = await query(
+    "SELECT status, secure_url FROM file_assets WHERE secure_url = $1",
+    ['https://res.cloudinary.com/demo/image/upload/v2/new-user-avatar.jpg']
+  );
+  assert.equal(queueCheck2.rows.length, 1);
+  assert.equal(queueCheck2.rows[0].status, 'pending_deletion');
+});
+
+test.after(async () => {
+  await closePool();
 });

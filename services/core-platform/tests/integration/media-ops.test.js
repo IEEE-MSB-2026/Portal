@@ -487,6 +487,7 @@ test('media studio: stats, album lifecycle (update, asset delete, unpublish, del
             title: 'IEEE MSB Dark Logo Vector',
             category: 'Logos',
             fileUrl: 'https://cdn.example.com/brand/logo-dark.svg',
+            thumbnailUrl: 'https://res.cloudinary.com/demo/image/upload/v1/brand_thumb.jpg',
             fileType: 'svg',
             fileSizeBytes: 24500,
             dimensions: '800x600',
@@ -514,7 +515,7 @@ test('media studio: stats, album lifecycle (update, asset delete, unpublish, del
         assert.ok(brandList.payload.assets.length >= 1);
         assert.equal(brandList.payload.assets[0].category, 'logos');
 
-        // Update brand asset
+        // Update brand asset with new thumbnail
         const updateBrand = await requestJson(server, {
           method: 'PATCH',
           path: `/core/media/brand-assets/${brandAssetId}`,
@@ -525,10 +526,20 @@ test('media studio: stats, album lifecycle (update, asset delete, unpublish, del
           }),
           body: {
             title: 'IEEE MSB Dark Logo Vector (Updated)',
+            thumbnailUrl: 'https://res.cloudinary.com/demo/image/upload/v2/brand_thumb_updated.jpg',
           },
         });
         assert.equal(updateBrand.response.status, 200);
         assert.equal(updateBrand.payload.asset.title, 'IEEE MSB Dark Logo Vector (Updated)');
+
+        const { query } = require('../../src/db/pool');
+        // Verify old thumbnail was queued into file_assets
+        const thumbQueueCheck = await query(
+          "SELECT status, secure_url FROM file_assets WHERE secure_url = $1",
+          ['https://res.cloudinary.com/demo/image/upload/v1/brand_thumb.jpg']
+        );
+        assert.equal(thumbQueueCheck.rows.length, 1);
+        assert.equal(thumbQueueCheck.rows[0].status, 'pending_deletion');
 
         // Delete brand asset
         const deleteBrand = await requestJson(server, {
@@ -541,6 +552,14 @@ test('media studio: stats, album lifecycle (update, asset delete, unpublish, del
           }),
         });
         assert.equal(deleteBrand.response.status, 200);
+
+        // Verify updated thumbnail was queued into file_assets on delete
+        const thumb2QueueCheck = await query(
+          "SELECT status, secure_url FROM file_assets WHERE secure_url = $1",
+          ['https://res.cloudinary.com/demo/image/upload/v2/brand_thumb_updated.jpg']
+        );
+        assert.equal(thumb2QueueCheck.rows.length, 1);
+        assert.equal(thumb2QueueCheck.rows[0].status, 'pending_deletion');
 
         // 8. Delete album
         const deleteAlbumRes = await requestJson(server, {

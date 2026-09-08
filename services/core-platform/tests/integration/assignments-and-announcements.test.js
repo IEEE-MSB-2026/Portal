@@ -298,6 +298,74 @@ test('assignments lifecycle: lead creates, member delivers work, lead grades sub
     assert.equal(statsPayload.assignments.graded, 1);
     assert.ok(statsPayload.committeesCount >= 1);
     assert.ok(statsPayload.daysMember >= 1);
+
+    // 8. Member resubmits assignment with updated solution file
+    const resubmitHeaders = signedHeaders({
+      method: 'POST',
+      path: submitPath,
+      userId: 'member-ai-1',
+      userEmail: 'member.ai@ieee.local',
+      userRole: 'member',
+      scopeType: 'committee',
+      scopeId: IDS.committees.ai,
+    });
+
+    const resubmitRes = await fetch(`${getBaseUrl(server)}${submitPath}`, {
+      method: 'POST',
+      headers: {
+        ...resubmitHeaders,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        fileUrl: 'https://res.cloudinary.com/demo/raw/upload/v12346/solution_v2.ipynb',
+        fileName: 'solution_v2.ipynb',
+        notes: 'Updated solution with hyperparameter tuning.',
+      }),
+    });
+    assert.equal(resubmitRes.status, 200);
+
+    const { query } = require('../../src/db/pool');
+    // Verify superseded submission was queued into file_assets
+    const subQueueCheck = await query(
+      "SELECT status, secure_url FROM file_assets WHERE secure_url = $1",
+      ['https://res.cloudinary.com/demo/raw/upload/v12345/solution_cifar10.ipynb']
+    );
+    assert.equal(subQueueCheck.rows.length, 1);
+    assert.equal(subQueueCheck.rows[0].status, 'pending_deletion');
+
+    // 9. Lead deletes assignment (cascading attachment and submissions)
+    const delAssignPath = `/core/committees/${IDS.committees.ai}/assignments/${assignmentId}`;
+    const delAssignHeaders = signedHeaders({
+      method: 'DELETE',
+      path: delAssignPath,
+      userId: 'lead-ai-1',
+      userEmail: 'lead.ai@ieee.local',
+      userRole: 'lead',
+      scopeType: 'committee',
+      scopeId: IDS.committees.ai,
+    });
+
+    const delAssignRes = await fetch(`${getBaseUrl(server)}${delAssignPath}`, {
+      method: 'DELETE',
+      headers: delAssignHeaders,
+    });
+    assert.equal(delAssignRes.status, 200);
+
+    // Verify assignment attachment was queued into file_assets
+    const attachQueueCheck = await query(
+      "SELECT status, secure_url FROM file_assets WHERE secure_url = $1",
+      ['https://res.cloudinary.com/demo/raw/upload/v12345/starter_code.zip']
+    );
+    assert.equal(attachQueueCheck.rows.length, 1);
+    assert.equal(attachQueueCheck.rows[0].status, 'pending_deletion');
+
+    // Verify resubmitted solution file was also queued into file_assets upon assignment cascade deletion
+    const sub2QueueCheck = await query(
+      "SELECT status, secure_url FROM file_assets WHERE secure_url = $1",
+      ['https://res.cloudinary.com/demo/raw/upload/v12346/solution_v2.ipynb']
+    );
+    assert.equal(sub2QueueCheck.rows.length, 1);
+    assert.equal(sub2QueueCheck.rows[0].status, 'pending_deletion');
   } finally {
     await new Promise((resolve) => server.close(resolve));
   }
@@ -458,4 +526,9 @@ test('resource edit, announcement pin toggle, unassigned task creation & claim',
   } finally {
     await new Promise((resolve) => server.close(resolve));
   }
+});
+
+test.after(async () => {
+  const { closePool } = require('./helpers');
+  await closePool();
 });
