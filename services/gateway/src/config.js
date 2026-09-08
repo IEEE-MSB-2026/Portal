@@ -17,4 +17,5 @@ module.exports = {
   fileServiceUrl: process.env.FILE_SERVICE_URL || 'http://localhost:5080',
   iamServiceAuthToken: process.env.IAM_SERVICE_AUTH_TOKEN || process.env.GATEWAY_SHARED_SECRET || 'dev-gateway-secret-change-in-prod',
   googleClientId: process.env.GOOGLE_CLIENT_ID || null,
+  corsOrigin: process.env.CORS_ORIGIN || '*',
 };

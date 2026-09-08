@@ -95,7 +95,7 @@ services:
     build:
       context: ./core-platform
       dockerfile: Dockerfile
-    container_name: core-platform-app
+    container_name: core-app
     restart: unless-stopped
     networks:
       - portal-network
