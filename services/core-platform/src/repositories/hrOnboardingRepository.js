@@ -22,6 +22,10 @@ async function createChecklistItems({
   const targetCreatorId = createdByUserId || createdByUserRefId || null;
   const insertedRows = [];
 
+  if (targetUserId) {
+    await runDb(client, 'DELETE FROM hr_onboarding_items WHERE assignee_user_id = $1', [targetUserId]);
+  }
+
   for (const item of (checklistItems || [])) {
     const result = await runDb(
       client,

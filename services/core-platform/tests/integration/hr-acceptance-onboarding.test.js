@@ -659,7 +659,7 @@ test('onboarding APIs: visibility filtering and update permissions are enforced'
           const aiSubmission = await submitApplication({
             server,
             campaignId: aiCampaign.payload.campaign.id,
-            applicant: ACTORS.memberAi,
+            applicant: ACTORS.memberWeb,
           });
 
           await moveToFinalReview({
@@ -732,7 +732,7 @@ test('onboarding APIs: visibility filtering and update permissions are enforced'
           assert.equal(markRes.response.status, 200);
           assert.equal(markRes.payload.updatedCount, 2);
 
-          // 3. Now member has 8 onboarding items (4 per committee)
+          // 3. Now member has 4 onboarding items
           const selfRead = await requestJson(server, {
             method: 'GET',
             path: selfPath,
@@ -740,7 +740,7 @@ test('onboarding APIs: visibility filtering and update permissions are enforced'
           });
 
           assert.equal(selfRead.response.status, 200);
-          assert.equal(selfRead.payload.onboarding.items.length, 8);
+          assert.equal(selfRead.payload.onboarding.items.length, 4);
           assert.equal(selfRead.payload.onboarding.items[0].title, 'Complete Your Portal Profile');
 
           const hrLeadHeaders = signedHeaders({
@@ -968,6 +968,31 @@ test('onboarding candidates queue: lists unsent accepted candidates and marks se
           assert.equal(resAll.payload.candidates.length, 1);
           assert.equal(resAll.payload.candidates[0].welcomeEmailSent, true);
           assert.ok(resAll.payload.candidates[0].welcomeEmailSentAt);
+
+          // 5. Replace test: dispatching a new checklist for this candidate replaces previous items
+          const replaceRes = await requestJson(server, {
+            method: 'POST',
+            path: markPath,
+            headers: markHeaders,
+            body: {
+              applicationIds: [sub1.payload.application.id],
+              checklistSteps: [
+                { id: 'new_step_1', title: 'Complete New Committee Orientation' },
+                { id: 'new_step_2', title: 'Attend First Sprint Planning' },
+                { id: 'new_step_3', title: 'Review Code of Conduct' },
+              ],
+            },
+          });
+          assert.equal(replaceRes.response.status, 200);
+
+          const replacedItems = await query(
+            'SELECT title, template_key FROM hr_onboarding_items WHERE assignee_user_id = $1 ORDER BY sort_order ASC',
+            [IDS.users.memberAi]
+          );
+          assert.equal(replacedItems.rows.length, 3);
+          assert.equal(replacedItems.rows[0].title, 'Complete New Committee Orientation');
+          assert.equal(replacedItems.rows[1].title, 'Attend First Sprint Planning');
+          assert.equal(replacedItems.rows[2].title, 'Review Code of Conduct');
         } finally {
           await new Promise((resolve) => server.close(resolve));
         }
