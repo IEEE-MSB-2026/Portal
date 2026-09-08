@@ -211,4 +211,39 @@ test('Branch Officers & Leadership Integration Tests', async (t) => {
     assert.equal(queueCheck.rows.length, 1);
     assert.equal(queueCheck.rows[0].status, 'pending_deletion');
   });
+
+  await t.test('PUT /core/admin/officers/seasons/set-active switches active season flag atomically', async () => {
+    const { query } = require('../../src/db/pool');
+    const headers = signedHeaders({
+      method: 'PUT',
+      path: '/core/admin/officers/seasons/set-active',
+      userId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      userEmail: 'admin@ieee.local',
+      userRole: 'admin',
+      scopeType: 'global',
+      scopeId: 'global',
+    });
+
+    const res = await requestJson(server, {
+      method: 'PUT',
+      path: '/core/admin/officers/seasons/set-active',
+      headers,
+      body: { season: '2024/2025' },
+    });
+
+    assert.equal(res.status, 200);
+    assert.equal(res.body.season, '2024/2025');
+
+    // Verify 2024/2025 officers are now is_current_season = true
+    const checkActive = await query('SELECT count(*)::int as cnt FROM branch_officers WHERE season = $1 AND is_current_season = TRUE', ['2024/2025']);
+    assert.ok(checkActive.rows[0].cnt > 0);
+
+    // Switch back to 2025/2026
+    await requestJson(server, {
+      method: 'PUT',
+      path: '/core/admin/officers/seasons/set-active',
+      headers,
+      body: { season: '2025/2026' },
+    });
+  });
 });

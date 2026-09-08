@@ -97,6 +97,8 @@ async function bootstrapTestDatabase() {
 }
 
 async function resetDatabase() {
+  await query('DELETE FROM branch_governance_documents');
+  await query('DELETE FROM branch_excom_members');
   await query('DELETE FROM branch_officers');
   await query('DELETE FROM file_assets');
   await query('DELETE FROM media_coverage_activity_log');

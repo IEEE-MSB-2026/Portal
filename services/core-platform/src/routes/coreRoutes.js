@@ -17,6 +17,7 @@ const mediaAlbumController = require('../controllers/mediaAlbumController');
 const mediaBrandAssetController = require('../controllers/mediaBrandAssetController');
 const mediaCoverageController = require('../controllers/mediaCoverageController');
 const officerAdminController = require('../controllers/officerAdminController');
+const officerWorkspaceController = require('../controllers/officerWorkspaceController');
 const userProfileController = require('../controllers/userProfileController');
 const routesController = require('../controllers/routesController');
 const { attachUserRef, requireCommitteeScope, verifyGatewaySignature } = require('../middlewares/gatewayAuth');
@@ -124,6 +125,33 @@ router.delete('/media/brand-assets/:assetId', mediaBrandAssetController.deleteBr
 router.post('/admin/officers', officerAdminController.createOfficer);
 router.patch('/admin/officers/:id', officerAdminController.updateOfficer);
 router.delete('/admin/officers/:id', officerAdminController.deleteOfficer);
+router.put('/admin/officers/reorder', officerWorkspaceController.reorderPublicOfficers);
+router.put('/admin/officers/seasons/set-active', officerWorkspaceController.setActiveSeason);
+
+// Officer Executive Workspace
+// Tab 1: Board Kanban Tasks
+router.get('/officers/tasks', officerWorkspaceController.getBoardTasks);
+router.get('/officers/tasks/archived', officerWorkspaceController.getArchivedBoardTasks);
+router.post('/officers/tasks', officerWorkspaceController.createBoardTask);
+router.patch('/officers/tasks/:id', officerWorkspaceController.updateBoardTask);
+router.delete('/officers/tasks/:id', officerWorkspaceController.deleteBoardTask);
+router.post('/officers/tasks/:id/archive', officerWorkspaceController.archiveBoardTask);
+
+// Tab 2: Cross-Committee Health & Progress Cockpit
+router.get('/officers/cockpit', officerWorkspaceController.getCockpitStats);
+
+// Tab 3: Governance Vault Documents
+router.get('/officers/documents', officerWorkspaceController.getDocuments);
+router.post('/officers/documents', officerWorkspaceController.createDocument);
+router.patch('/officers/documents/:id', officerWorkspaceController.updateDocument);
+router.delete('/officers/documents/:id', officerWorkspaceController.deleteDocument);
+
+// Tab 4: Excom Internal Team & Role Assignment
+router.get('/officers/excom', officerWorkspaceController.getExcomMembers);
+router.post('/officers/excom', officerWorkspaceController.assignExcomMember);
+router.delete('/officers/excom/:id', officerWorkspaceController.removeExcomMember);
+router.get('/officers/candidates', officerWorkspaceController.searchCandidates);
+
 router.get('/routes', routesController.getCoreRoutes);
 
 module.exports = router;

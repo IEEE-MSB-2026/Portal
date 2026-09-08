@@ -53,7 +53,7 @@ async function listSeasons() {
     FROM branch_officers
     WHERE is_active = TRUE
     GROUP BY season
-    ORDER BY season DESC
+    ORDER BY CAST(split_part(season, '/', 1) AS INTEGER) DESC, season DESC
   `;
   const { rows } = await pool.query(query);
   return rows.map((r) => ({
@@ -61,6 +61,29 @@ async function listSeasons() {
     isCurrent: Boolean(r.is_current),
     memberCount: r.member_count,
   }));
+}
+
+async function setActiveSeason(season) {
+  if (!validateSeasonFormat(season)) {
+    throw new Error('Invalid season format. Must be "YYYY/YYYY" where end year is start year + 1 (e.g. 2025/2026).');
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query('UPDATE branch_officers SET is_current_season = FALSE, updated_at = NOW() WHERE is_current_season = TRUE');
+    const { rowCount } = await client.query(
+      'UPDATE branch_officers SET is_current_season = TRUE, updated_at = NOW() WHERE season = $1 AND is_active = TRUE',
+      [season.trim()]
+    );
+    await client.query('COMMIT');
+    return { season: season.trim(), updatedCount: rowCount };
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
 }
 
 async function createOfficer({ name, role, season, isCurrentSeason = false, avatarUrl, linkedinUrl, email, bio, displayOrder = 0 }) {
@@ -203,11 +226,38 @@ async function deleteOfficer(id) {
   return rows[0] || null;
 }
 
+async function reorderOfficers(orderedItems) {
+  if (!Array.isArray(orderedItems) || orderedItems.length === 0) {
+    return [];
+  }
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    for (const item of orderedItems) {
+      if (item.id && typeof item.displayOrder === 'number') {
+        await client.query(
+          'UPDATE branch_officers SET display_order = $1, updated_at = NOW() WHERE id = $2',
+          [item.displayOrder, item.id]
+        );
+      }
+    }
+    await client.query('COMMIT');
+    return orderedItems;
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
 module.exports = {
   validateSeasonFormat,
   listPublicOfficers,
   listSeasons,
+  setActiveSeason,
   createOfficer,
   updateOfficer,
   deleteOfficer,
+  reorderOfficers,
 };
