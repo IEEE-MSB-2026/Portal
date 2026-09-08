@@ -323,7 +323,7 @@ async function dispatchCampaign({
         }
 
         if (participantIds.length > 0) {
-          const eventRegisterUrl = process.env.EVENT_REGISTER_SERVICE_URL || 'http://localhost:5050';
+          const eventRegisterUrl = process.env.EVENT_REGISTER_SERVICE_URL || process.env.EVENT_REGISTER_URL || 'http://localhost:5050';
           await fetch(`${eventRegisterUrl}/api/events/${meta.eventId}/qr/dispatch-callback`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
