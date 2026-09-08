@@ -100,6 +100,7 @@ function initPgMemPool() {
   // Seed personas with deterministic UUIDs
   db.public.none(`
     INSERT INTO users (id, email, password_hash, name, default_role, default_scope_type, default_scope_id, is_email_verified) VALUES
+      ('11111111-0000-4000-8000-000000000000', 'admin@ieeemsb.org', '9830f4859edcc21867e9685489e5c6d4:35b2ebdae477b7e1306ac599daed7f0110ef97043f60ed874fce7df2278612a890feeea487414c20b95efed14f803c00998ccaa656ab7528609de8cea8a0283d', 'Branch Administrator', 'admin', 'global', 'global', TRUE),
       ('11111111-0000-4000-8000-000000000001', 'admin@ieee.local', '48b529d756e26809a43e6d9885e1c2e7:9f91ed2edf9e031e77311242b9bce3ab0baec08decc7a6b1b708c78f110cbfe33d1f13e61331e23fcefa3cb48ab93ce15736d37c8107b46e1555c1ccf2b5f683', 'IEEE Branch Chair (Admin)', 'admin', 'global', 'global', TRUE),
       ('11111111-0000-4000-8000-000000000002', 'officer@ieee.local', '48b529d756e26809a43e6d9885e1c2e7:9f91ed2edf9e031e77311242b9bce3ab0baec08decc7a6b1b708c78f110cbfe33d1f13e61331e23fcefa3cb48ab93ce15736d37c8107b46e1555c1ccf2b5f683', 'ExCom Vice Chair', 'officer', 'global', 'global', TRUE),
       ('11111111-0000-4000-8000-000000000003', 'lead.ai@ieee.local', '48b529d756e26809a43e6d9885e1c2e7:9f91ed2edf9e031e77311242b9bce3ab0baec08decc7a6b1b708c78f110cbfe33d1f13e61331e23fcefa3cb48ab93ce15736d37c8107b46e1555c1ccf2b5f683', 'AI Committee Lead', 'lead', 'committee', '11111111-1111-4111-8111-111111111111', TRUE),
@@ -116,6 +117,7 @@ function initPgMemPool() {
   // Seed roles
   db.public.none(`
     INSERT INTO auth_user_roles (id, user_id, role, scope_type, scope_id, committee_id) VALUES
+      ('c0000000-0000-4000-8000-000000000000', '11111111-0000-4000-8000-000000000000', 'admin', 'global', 'global', NULL),
       ('c1111111-1111-4111-8111-111111111111', '11111111-0000-4000-8000-000000000001', 'admin', 'global', 'global', NULL),
       ('c2222222-2222-4222-8222-111111111111', '11111111-0000-4000-8000-000000000002', 'officer', 'global', 'global', NULL),
       ('c3333333-3333-4333-8333-111111111111', '11111111-0000-4000-8000-000000000003', 'lead', 'committee', '11111111-1111-4111-8111-111111111111', '11111111-1111-4111-8111-111111111111'),

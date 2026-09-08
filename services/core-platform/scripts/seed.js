@@ -1,4 +1,3 @@
-const fs = require('fs');
 const path = require('path');
 const { getPool, closePool } = require('../src/db/pool');
 const { runMigrations } = require('../src/db/migrations');
@@ -9,25 +8,9 @@ async function seed() {
   const migrationsDir = path.join(__dirname, '../migrations');
 
   try {
-    logger.info('Applying all migrations before seeding...');
+    logger.info('Applying all migrations and seeds...');
     await runMigrations({ pool, migrationsDir, logger });
-
-    logger.info('Executing initial seed data migration...');
-    const seedSqlPath = path.join(migrationsDir, '002_seed_initial_data.sql');
-    const seedSql = fs.readFileSync(seedSqlPath, 'utf8');
-
-    const client = await pool.connect();
-    try {
-      await client.query('BEGIN');
-      await client.query(seedSql);
-      await client.query('COMMIT');
-      logger.info('Development database seeded successfully!');
-    } catch (err) {
-      await client.query('ROLLBACK');
-      throw err;
-    } finally {
-      client.release();
-    }
+    logger.info('Database schema and seed data applied successfully!');
   } catch (err) {
     logger.error({ err: err.message }, 'Failed to seed database');
     process.exitCode = 1;

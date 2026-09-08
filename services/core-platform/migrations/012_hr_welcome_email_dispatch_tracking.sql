@@ -1,3 +1,0 @@
-ALTER TABLE hr_applications
-  ADD COLUMN IF NOT EXISTS welcome_email_sent BOOLEAN NOT NULL DEFAULT FALSE,
-  ADD COLUMN IF NOT EXISTS welcome_email_sent_at TIMESTAMPTZ;
