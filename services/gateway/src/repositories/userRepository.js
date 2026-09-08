@@ -63,6 +63,33 @@ function formatAvailableScopes(rows) {
 
   return Array.from(scopeMap.values());
 }
+ 
+function mapUserRow(user, rolesRows) {
+  if (!user) return null;
+  return {
+    id: user.id,
+    email: user.email,
+    passwordHash: user.password_hash,
+    name: user.name,
+    avatarUrl: user.avatar_url,
+    membershipId: user.membership_id || null,
+    defaultRole: user.default_role,
+    defaultScopeType: user.default_scope_type,
+    defaultScopeId: user.default_scope_id,
+    isEmailVerified: Boolean(user.is_email_verified),
+    googleId: user.google_id || null,
+    authProvider: user.auth_provider || 'local',
+    emailVerificationExpiresAt: user.email_verification_expires_at,
+    emailVerificationSentAt: user.email_verification_sent_at,
+    availableScopes: formatAvailableScopes(rolesRows || []),
+  };
+}
+
+const USER_SELECT_COLUMNS = `
+  id, email, password_hash, name, avatar_url, membership_id, default_role, 
+  default_scope_type, default_scope_id, is_email_verified, google_id, auth_provider,
+  email_verification_token_hash, email_verification_expires_at, email_verification_sent_at
+`;
 
 async function findByEmail(email) {
   if (!email || typeof email !== 'string') return null;
@@ -74,7 +101,7 @@ async function findByEmail(email) {
   }
 
   const userRes = await pool.query(
-    `SELECT id, email, password_hash, name, avatar_url, membership_id, default_role, default_scope_type, default_scope_id 
+    `SELECT ${USER_SELECT_COLUMNS}
      FROM users 
      WHERE email = $1 AND is_active = TRUE 
      LIMIT 1`,
@@ -91,18 +118,7 @@ async function findByEmail(email) {
     [user.id]
   );
 
-  return {
-    id: user.id,
-    email: user.email,
-    passwordHash: user.password_hash,
-    name: user.name,
-    avatarUrl: user.avatar_url,
-    membershipId: user.membership_id || null,
-    defaultRole: user.default_role,
-    defaultScopeType: user.default_scope_type,
-    defaultScopeId: user.default_scope_id,
-    availableScopes: formatAvailableScopes(rolesRes.rows),
-  };
+  return mapUserRow(user, rolesRes.rows);
 }
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -118,7 +134,7 @@ async function findById(id) {
   let user = null;
   if (UUID_REGEX.test(id)) {
     const userRes = await pool.query(
-      `SELECT id, email, password_hash, name, avatar_url, membership_id, default_role, default_scope_type, default_scope_id 
+      `SELECT ${USER_SELECT_COLUMNS}
        FROM users 
        WHERE id = $1 AND is_active = TRUE 
        LIMIT 1`,
@@ -129,7 +145,7 @@ async function findById(id) {
     const cleanHandle = String(id).replace(/-[0-9]+$/, '').replace(/-/g, '.');
     const candidateEmail = `${cleanHandle}@ieee.local`;
     const userRes = await pool.query(
-      `SELECT id, email, password_hash, name, avatar_url, membership_id, default_role, default_scope_type, default_scope_id 
+      `SELECT ${USER_SELECT_COLUMNS}
        FROM users 
        WHERE (email = $1 OR email = $2) AND is_active = TRUE 
        LIMIT 1`,
@@ -148,18 +164,35 @@ async function findById(id) {
     [user.id]
   );
 
-  return {
-    id: user.id,
-    email: user.email,
-    passwordHash: user.password_hash,
-    name: user.name,
-    avatarUrl: user.avatar_url,
-    membershipId: user.membership_id || null,
-    defaultRole: user.default_role,
-    defaultScopeType: user.default_scope_type,
-    defaultScopeId: user.default_scope_id,
-    availableScopes: formatAvailableScopes(rolesRes.rows),
-  };
+  return mapUserRow(user, rolesRes.rows);
+}
+
+async function findByGoogleId(googleId) {
+  if (!googleId) return null;
+  const pool = getPool();
+  if (!pool) {
+    throw new Error('Database connection pool is not available');
+  }
+
+  const userRes = await pool.query(
+    `SELECT ${USER_SELECT_COLUMNS}
+     FROM users 
+     WHERE google_id = $1 AND is_active = TRUE 
+     LIMIT 1`,
+    [googleId]
+  );
+  const user = userRes.rows[0];
+  if (!user) return null;
+
+  const rolesRes = await pool.query(
+    `SELECT aur.id, aur.role, aur.scope_type, aur.scope_id, aur.committee_id, c.slug AS committee_slug, c.name AS committee_name
+     FROM auth_user_roles aur
+     LEFT JOIN committees c ON c.id = aur.committee_id
+     WHERE aur.user_id = $1 AND aur.is_active = TRUE`,
+    [user.id]
+  );
+
+  return mapUserRow(user, rolesRes.rows);
 }
 
 async function validateScope(userId, role, scopeType, scopeId) {
@@ -213,8 +246,8 @@ async function create({ email, password, name, membershipId = null, role = 'memb
     await client.query('BEGIN');
 
     await client.query(
-      `INSERT INTO users (id, email, password_hash, name, membership_id, default_role, default_scope_type, default_scope_id)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+      `INSERT INTO users (id, email, password_hash, name, membership_id, default_role, default_scope_type, default_scope_id, is_email_verified, auth_provider)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, FALSE, 'local')`,
       [userId, normalizedEmail, passwordHash, name, cleanMemId, initialRole, initialScopeType, initialScopeId]
     );
 
@@ -331,12 +364,101 @@ async function updatePassword(userId, newPasswordHash) {
   return true;
 }
 
+async function createGoogleUser({ email, name, avatarUrl, googleId }) {
+  const normalizedEmail = email.trim().toLowerCase();
+  const userId = crypto.randomUUID();
+  const pool = getPool();
+  if (!pool) {
+    throw new Error('Database connection pool is not available');
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    await client.query(
+      `INSERT INTO users (id, email, password_hash, name, avatar_url, google_id, auth_provider, is_email_verified)
+       VALUES ($1, $2, NULL, $3, $4, $5, 'google', TRUE)`,
+      [userId, normalizedEmail, name, avatarUrl || null, googleId]
+    );
+
+    await client.query('COMMIT');
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    if (err.code === '23505') {
+      const conflictErr = new Error('An account with this email or Google account already exists');
+      conflictErr.status = 409;
+      throw conflictErr;
+    }
+    throw err;
+  } finally {
+    client.release();
+  }
+
+  return findById(userId);
+}
+
+async function setVerificationToken(userId, tokenHash, expiresAt) {
+  const pool = getPool();
+  if (!pool) {
+    throw new Error('Database connection pool is not available');
+  }
+  await pool.query(
+    `UPDATE users 
+     SET email_verification_token_hash = $1,
+         email_verification_expires_at = $2,
+         email_verification_sent_at = NOW()
+     WHERE id = $3`,
+    [tokenHash, expiresAt, userId]
+  );
+}
+
+async function verifyEmailByToken(tokenHash) {
+  const pool = getPool();
+  if (!pool) {
+    throw new Error('Database connection pool is not available');
+  }
+  const res = await pool.query(
+    `UPDATE users 
+     SET is_email_verified = TRUE,
+         email_verification_token_hash = NULL,
+         email_verification_expires_at = NULL
+     WHERE email_verification_token_hash = $1
+       AND email_verification_expires_at > NOW()
+       AND is_active = TRUE
+     RETURNING id`,
+    [tokenHash]
+  );
+  if (!res.rows[0]) return null;
+  return findById(res.rows[0].id);
+}
+
+async function findUserByVerificationToken(tokenHash) {
+  const pool = getPool();
+  if (!pool) {
+    throw new Error('Database connection pool is not available');
+  }
+  const res = await pool.query(
+    `SELECT id, email, name, email_verification_expires_at, is_email_verified
+     FROM users 
+     WHERE email_verification_token_hash = $1 AND is_active = TRUE
+     LIMIT 1`,
+    [tokenHash]
+  );
+  return res.rows[0] || null;
+}
+
 module.exports = {
   assignRole,
   revokeRole,
   create,
+  createGoogleUser,
   findByEmail,
   findById,
+  findByGoogleId,
+  setVerificationToken,
+  verifyEmailByToken,
+  findUserByVerificationToken,
   updatePassword,
   validateScope,
 };

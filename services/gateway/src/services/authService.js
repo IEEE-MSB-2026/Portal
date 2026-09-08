@@ -1,5 +1,6 @@
 const userRepository = require('../repositories/userRepository');
 const tokenService = require('./tokenService');
+const emailVerificationService = require('./emailVerificationService');
 const { verifyPassword } = require('../utils/passwordUtils');
 
 function resolveEffectiveScope(user, preferredScopeId = null) {
@@ -84,6 +85,11 @@ async function register({ email, password, name, membershipId = null, role = nul
     scopeType,
     scopeId,
     committeeId,
+  });
+
+  // Automatically dispatch verification email on registration
+  emailVerificationService.generateAndSendVerification(user).catch((err) => {
+    console.warn('[Gateway] Auto verification email dispatch failed:', err.message);
   });
 
   const activeScope = resolveEffectiveScope(user);
@@ -254,5 +260,6 @@ module.exports = {
   logout,
   refreshTokens,
   register,
+  resolveEffectiveScope,
   switchContext,
 };

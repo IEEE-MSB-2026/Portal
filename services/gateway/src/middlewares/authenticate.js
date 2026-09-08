@@ -58,6 +58,7 @@ function optionalJwtAuth(req, res, next) {
     try {
       const decoded = jwt.verify(token, config.jwtSecret);
       req.decoded = decoded;
+      req.user = { id: decoded.sub, email: decoded.email, role: decoded.role };
       req.identity = {
         userId: decoded.sub,
         email: decoded.email,

@@ -1,6 +1,6 @@
 const express = require('express');
 const authController = require('../controllers/authController');
-const { requireJwtAuth } = require('../middlewares/authenticate');
+const { requireJwtAuth, optionalJwtAuth } = require('../middlewares/authenticate');
 const { authLimiter } = require('../middlewares/rateLimiter');
 
 const router = express.Router();
@@ -12,6 +12,12 @@ router.post('/refresh', authController.refresh);
 router.post('/logout', authController.logout);
 router.get('/me', requireJwtAuth, authController.getMe);
 router.patch('/password', requireJwtAuth, authLimiter, authController.changePassword);
+
+router.post('/google', authLimiter, authController.loginWithGoogle);
+
+// Email Verification Flow
+router.post('/verify-email', authLimiter, authController.verifyEmail);
+router.post('/resend-verification', optionalJwtAuth, authLimiter, authController.resendVerification);
 
 // 3-Step Forgot Password & OTP Recovery
 router.post('/forgot-password/request-otp', authLimiter, authController.requestPasswordResetOtp);

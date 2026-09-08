@@ -164,15 +164,65 @@ async function resetPasswordWithToken(req, res, next) {
   }
 }
 
+const emailVerificationService = require('../services/emailVerificationService');
+const googleAuthService = require('../services/googleAuthService');
+
+async function verifyEmail(req, res, next) {
+  try {
+    const { token } = req.body || {};
+    const result = await emailVerificationService.verifyEmail(token);
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function resendVerification(req, res, next) {
+  try {
+    let userId = req.user?.id || req.identity?.userRefId;
+    if (!userId && req.identity?.userId && req.identity?.userId !== 'guest-1') {
+      userId = req.identity.userId;
+    }
+    const { email } = req.body || {};
+
+    if (!userId && (!email || typeof email !== 'string' || !email.trim())) {
+      return res.status(401).json({ error: 'Authentication required or provide an email address to resend verification link' });
+    }
+
+    const result = await emailVerificationService.resendVerification({ userId, email });
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function loginWithGoogle(req, res, next) {
+  try {
+    const { credential } = req.body || {};
+    const result = await googleAuthService.loginWithGoogle({ credential });
+    setRefreshCookie(res, result.refreshToken, result.expiresAt);
+    res.json({
+      token: result.token,
+      refreshToken: result.refreshToken,
+      user: result.user,
+    });
+  } catch (err) {
+    next(err);
+  }
+}
+
 module.exports = {
   changePassword,
   getMe,
   login,
+  loginWithGoogle,
   logout,
   refresh,
   register,
   requestPasswordResetOtp,
+  resendVerification,
   resetPasswordWithToken,
   switchContext,
+  verifyEmail,
   verifyPasswordResetOtp,
 };
