@@ -210,6 +210,8 @@ services:
     restart: unless-stopped
     networks:
       - portal-network
+    ports:
+      - "127.0.0.1:3060:3060"
     environment:
       PORT: 3060
       EMAIL_SERVICE_PORT: 3060
