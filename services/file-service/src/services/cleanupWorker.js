@@ -21,7 +21,7 @@ function startCleanupWorker({
         console.log(`[FileService Outbox] Processed ${processedCount} pending Cloudinary deletions`);
       }
     } catch (err) {
-      console.error('[FileService Outbox Worker Error]:', err.message);
+      console.error('[FileService Outbox Worker Error]:', err?.message || err);
     } finally {
       isProcessingOutbox = false;
     }
@@ -46,7 +46,7 @@ function startCleanupWorker({
         console.log(`[FileService Orphan Sweeper] Successfully purged ${result.purgedCount} orphan assets from Cloudinary and database`);
       }
     } catch (err) {
-      console.error('[FileService Orphan Sweeper Error]:', err.message);
+      console.error('[FileService Orphan Sweeper Error]:', err?.message || err);
     } finally {
       isProcessingOrphans = false;
     }

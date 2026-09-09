@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 const http = require('node:http');
 
 const app = require('../src/app');
+const { closePool } = require('../src/db/pool');
 
 describe('Cloudinary File Service Tests', () => {
   let server;
@@ -16,6 +17,7 @@ describe('Cloudinary File Service Tests', () => {
 
   after(async () => {
     if (server) await new Promise((resolve) => server.close(resolve));
+    await closePool();
   });
 
   test('GET /health returns service status and upload mode', async () => {

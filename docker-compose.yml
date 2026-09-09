@@ -297,6 +297,7 @@ services:
     environment:
       PORT: 5080
       NODE_ENV: production
+      DATABASE_URL: postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@core-postgres:5432/${POSTGRES_DB:-ieee_core}
       GATEWAY_SHARED_SECRET: ${GATEWAY_SHARED_SECRET}
       CLOUDINARY_CLOUD_NAME: ${CLOUDINARY_CLOUD_NAME:-}
       CLOUDINARY_API_KEY: ${CLOUDINARY_API_KEY:-}
