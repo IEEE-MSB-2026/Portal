@@ -39,10 +39,27 @@ fi
 POSTGRES_USER="${POSTGRES_USER:-postgres}"
 POSTGRES_DB="${POSTGRES_DB:-ieee_core}"
 MONGO_DB="${MONGO_DB:-ieee-registration}"
-BACKUP_DIR="${BACKUP_DIR:-/var/backups/ieee-portal}"
 RETENTION_DAYS="${RETENTION_DAYS:-7}"
 ALERT_EMAIL="yuossefbakier@gmail.com"
 EMAIL_SERVICE_URL="${EMAIL_SERVICE_URL:-http://127.0.0.1:3060/email/send}"
+
+# Intelligent default for BACKUP_DIR:
+# If not explicitly provided, try /var/backups/ieee-portal if writable or running as root,
+# otherwise safely default to $PROJECT_ROOT/backups
+if [[ -z "$BACKUP_DIR" ]]; then
+  if [[ "$EUID" -eq 0 ]] || [[ -w "/var/backups" ]]; then
+    BACKUP_DIR="/var/backups/ieee-portal"
+  else
+    BACKUP_DIR="${PROJECT_ROOT}/backups"
+  fi
+fi
+
+# Ensure local backup directory exists, with automatic fallback if permission denied
+if ! mkdir -p "$BACKUP_DIR" 2>/dev/null; then
+  echo "Notice: Cannot write to $BACKUP_DIR. Falling back to ${PROJECT_ROOT}/backups..."
+  BACKUP_DIR="${PROJECT_ROOT}/backups"
+  mkdir -p "$BACKUP_DIR"
+fi
 
 # Backblaze B2 / S3 Config
 B2_KEY_ID="${B2_KEY_ID:-${AWS_ACCESS_KEY_ID:-}}"
@@ -72,7 +89,7 @@ send_failure_alert() {
     local json_payload
     json_payload=$(cat <<EOF
 {
-  "to": "$ALERT_EMAIL",
+  "to": ["$ALERT_EMAIL"],
   "subject": "🚨 [ALERT] IEEE Portal Database Backup Failed",
   "html": "<div style=\"font-family: sans-serif; max-width: 600px; padding: 20px; border: 1px solid #f87171; border-radius: 8px; background-color: #fef2f2;\"><h2 style=\"color: #b91c1c; margin-top: 0;\">🚨 Disaster Recovery Backup Failed</h2><p>An error occurred during the automated database backup of <strong>IEEE Portal</strong> on server <code>$(hostname)</code>.</p><table style=\"width: 100%; border-collapse: collapse; margin: 16px 0;\"><tr style=\"border-bottom: 1px solid #fca5a5;\"><td style=\"padding: 8px; font-weight: bold;\">Timestamp:</td><td style=\"padding: 8px;\">$(date -u +"%Y-%m-%d %H:%M:%S UTC")</td></tr><tr style=\"border-bottom: 1px solid #fca5a5;\"><td style=\"padding: 8px; font-weight: bold;\">Exit Code:</td><td style=\"padding: 8px;\">$exit_code</td></tr><tr style=\"border-bottom: 1px solid #fca5a5;\"><td style=\"padding: 8px; font-weight: bold;\">Failed Line:</td><td style=\"padding: 8px;\">$line_no</td></tr><tr><td style=\"padding: 8px; font-weight: bold;\">Compose Stack:</td><td style=\"padding: 8px;\">$COMPOSE_FILE</td></tr></table><p style=\"color: #4b5563; font-size: 13px;\">Please check the server backup logs at <code>/var/log/ieee-portal-backup.log</code> to inspect the details and restore protection.</p></div>"
 }
@@ -95,9 +112,6 @@ cleanup() {
 
 trap 'send_failure_alert $? $LINENO' ERR
 trap cleanup EXIT
-
-# Ensure local backup directory exists
-mkdir -p "$BACKUP_DIR"
 
 log "=================================================================="
 log "Starting IEEE Portal Disaster Recovery Backup: $ARCHIVE_NAME"
@@ -175,14 +189,36 @@ else
 fi
 
 # Step 5: Prune Backups Older than Retention Period (7 Days)
-log "5/5: Pruning backups older than $RETENTION_DAYS days..."
+log "5/5: Pruning local backups older than $RETENTION_DAYS days..."
 DELETED_COUNT=0
-while IFS= read -r -d '' old_backup; do
-  rm -f "$old_backup"
-  DELETED_COUNT=$((DELETED_COUNT + 1))
-done < <(find "$BACKUP_DIR" -name "ieee_portal_backup_*.tar.gz" -mtime +"$RETENTION_DAYS" -print0)
 
-log "Pruned $DELETED_COUNT old local backup(s)."
+# A. Delete files older than retention days by modification time
+while IFS= read -r -d '' old_backup; do
+  if [[ -f "$old_backup" ]]; then
+    log "Deleting local backup older than $RETENTION_DAYS days: $(basename "$old_backup")"
+    rm -f "$old_backup"
+    DELETED_COUNT=$((DELETED_COUNT + 1))
+  fi
+done < <(find "$BACKUP_DIR" -maxdepth 1 -name "ieee_portal_backup_*.tar.gz" -mtime +"$RETENTION_DAYS" -print0 2>/dev/null || true)
+
+# B. Enforce max storage safeguard: Keep at most the newest $RETENTION_DAYS archives locally
+LOCAL_BACKUPS=()
+while IFS= read -r file; do
+  [[ -n "$file" ]] && LOCAL_BACKUPS+=("$file")
+done < <(ls -1t "$BACKUP_DIR"/ieee_portal_backup_*.tar.gz 2>/dev/null || true)
+
+if (( ${#LOCAL_BACKUPS[@]} > RETENTION_DAYS )); then
+  EXCESS_FILES=("${LOCAL_BACKUPS[@]:$RETENTION_DAYS}")
+  for excess in "${EXCESS_FILES[@]}"; do
+    if [[ -f "$excess" ]]; then
+      log "Deleting excess local backup to maintain $RETENTION_DAYS-day retention: $(basename "$excess")"
+      rm -f "$excess"
+      DELETED_COUNT=$((DELETED_COUNT + 1))
+    fi
+  done
+fi
+
+log "Pruned $DELETED_COUNT old local backup(s). Total retained local backups: $(ls -1 "$BACKUP_DIR"/ieee_portal_backup_*.tar.gz 2>/dev/null | wc -l)"
 
 # Prune Remote Backblaze B2 Backups older than 7 days if aws-cli is available
 if command -v aws >/dev/null 2>&1 && [[ -n "$B2_BUCKET_NAME" && -n "$B2_KEY_ID" && -n "$B2_APPLICATION_KEY" ]]; then
