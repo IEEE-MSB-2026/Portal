@@ -6,9 +6,10 @@ function hashToken(token) {
   return crypto.createHash('sha256').update(token).digest('hex');
 }
 
-async function sendVerificationEmail(user, rawToken) {
-  const portalBaseUrl = process.env.PORTAL_BASE_URL || 'http://localhost:5173';
-  const verificationUrl = `${portalBaseUrl}/verify-email?token=${encodeURIComponent(rawToken)}`;
+async function sendVerificationEmail(user, rawToken, portalBaseUrl) {
+  const baseUrl = portalBaseUrl || config.frontendUrl;
+  const normalizedBase = baseUrl.replace(/\/+$/, '');
+  const verificationUrl = `${normalizedBase}/verify-email?token=${encodeURIComponent(rawToken)}`;
 
   // Log in dev / test for instantaneous testing
   if (process.env.NODE_ENV !== 'production') {
@@ -72,13 +73,13 @@ async function sendVerificationEmail(user, rawToken) {
   }
 }
 
-async function generateAndSendVerification(user) {
+async function generateAndSendVerification(user, portalBaseUrl) {
   const rawToken = crypto.randomBytes(32).toString('hex');
   const tokenHash = hashToken(rawToken);
   const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
 
   await userRepository.setVerificationToken(user.id, tokenHash, expiresAt);
-  await sendVerificationEmail(user, rawToken);
+  await sendVerificationEmail(user, rawToken, portalBaseUrl);
 
   return { rawToken, expiresAt };
 }
@@ -126,6 +127,7 @@ async function verifyEmail(rawToken) {
 async function resendVerification(target) {
   const userId = typeof target === 'string' ? target : target?.userId;
   const email = typeof target === 'object' ? target?.email : null;
+  const portalBaseUrl = typeof target === 'object' ? target?.portalBaseUrl : null;
 
   let user = null;
   if (userId) {
@@ -171,7 +173,7 @@ async function resendVerification(target) {
     }
   }
 
-  await generateAndSendVerification(user);
+  await generateAndSendVerification(user, portalBaseUrl);
 
   return {
     success: true,

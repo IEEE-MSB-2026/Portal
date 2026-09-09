@@ -209,6 +209,27 @@ describe('Email Verification & Google SSO Authentication Tests', () => {
       assert.equal(data.success, true);
       assert.ok(data.message);
     });
+
+    test('POST /api/auth/resend-verification accepts dynamic Origin header', async () => {
+      const pool = getPool();
+      const pastSent = new Date(Date.now() - 120 * 1000);
+      await pool.query(
+        'UPDATE users SET is_email_verified = false, email_verification_sent_at = $1 WHERE id = $2',
+        [pastSent, userId]
+      );
+
+      const res = await fetch(`${baseUrl}/api/auth/resend-verification`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          origin: 'https://portal.ieeemsb.org',
+          authorization: `Bearer ${userAuthToken}`,
+        },
+      });
+      assert.equal(res.status, 200);
+      const data = await res.json();
+      assert.equal(data.success, true);
+    });
   });
 
   describe('Google SSO Flow & Collision Policy', () => {

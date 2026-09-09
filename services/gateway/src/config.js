@@ -18,4 +18,5 @@ module.exports = {
   iamServiceAuthToken: process.env.IAM_SERVICE_AUTH_TOKEN || process.env.GATEWAY_SHARED_SECRET || 'dev-gateway-secret-change-in-prod',
   googleClientId: process.env.GOOGLE_CLIENT_ID || null,
   corsOrigin: process.env.CORS_ORIGIN || '*',
+  frontendUrl: process.env.FRONTEND_URL || process.env.PORTAL_BASE_URL || 'http://localhost:5173',
 };

@@ -1,4 +1,5 @@
 const authService = require('../services/authService');
+const { resolvePortalBaseUrl } = require('../utils/urlResolver');
 
 function setRefreshCookie(res, refreshToken, expiresAt) {
   res.cookie('refreshToken', refreshToken, {
@@ -29,7 +30,8 @@ async function register(req, res, next) {
   try {
     const { email, password, name, membershipId, membership_id, role, scopeType, scopeId, committeeId } = req.body || {};
     const memId = membershipId || membership_id || null;
-    const result = await authService.register({ email, password, name, membershipId: memId, role, scopeType, scopeId, committeeId });
+    const portalBaseUrl = resolvePortalBaseUrl(req);
+    const result = await authService.register({ email, password, name, membershipId: memId, role, scopeType, scopeId, committeeId, portalBaseUrl });
     setRefreshCookie(res, result.refreshToken, result.expiresAt);
     res.status(201).json({
       token: result.token,
@@ -189,7 +191,8 @@ async function resendVerification(req, res, next) {
       return res.status(401).json({ error: 'Authentication required or provide an email address to resend verification link' });
     }
 
-    const result = await emailVerificationService.resendVerification({ userId, email });
+    const portalBaseUrl = resolvePortalBaseUrl(req);
+    const result = await emailVerificationService.resendVerification({ userId, email, portalBaseUrl });
     res.json(result);
   } catch (err) {
     next(err);

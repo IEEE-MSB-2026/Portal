@@ -69,7 +69,7 @@ async function login({ email, password }) {
   };
 }
 
-async function register({ email, password, name, membershipId = null, role = null, scopeType = null, scopeId = null, committeeId = null }) {
+async function register({ email, password, name, membershipId = null, role = null, scopeType = null, scopeId = null, committeeId = null, portalBaseUrl = null }) {
   if (!email || !password || !name) {
     const err = new Error('Name, email, and password are required');
     err.status = 400;
@@ -88,7 +88,7 @@ async function register({ email, password, name, membershipId = null, role = nul
   });
 
   // Automatically dispatch verification email on registration
-  emailVerificationService.generateAndSendVerification(user).catch((err) => {
+  emailVerificationService.generateAndSendVerification(user, portalBaseUrl).catch((err) => {
     console.warn('[Gateway] Auto verification email dispatch failed:', err.message);
   });
 

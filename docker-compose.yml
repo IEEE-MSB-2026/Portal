@@ -160,6 +160,7 @@ services:
       NODE_ENV: production
       DATABASE_URL: postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@core-postgres:5432/${POSTGRES_DB:-ieee_core}
       CORS_ORIGIN: ${CORS_ORIGIN:-*}
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:5173}
       JWT_SECRET: ${JWT_SECRET}
       ACCESS_TOKEN_TTL: ${ACCESS_TOKEN_TTL:-15m}
       REFRESH_TOKEN_TTL_DAYS: ${REFRESH_TOKEN_TTL_DAYS:-7}
