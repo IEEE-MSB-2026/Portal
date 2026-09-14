@@ -72,6 +72,21 @@ async function getUserProfile(req, res, next) {
 
     const memberships = membershipsRes.rows;
 
+    // 2b. Fetch active global roles from auth_user_roles (source of truth for officer/admin grants)
+    const globalRolesRes = await query(
+      `
+        SELECT role
+        FROM auth_user_roles
+        WHERE user_id = $1
+          AND is_active = TRUE
+          AND (scope_type = 'global' OR scope_type IS NULL)
+        ORDER BY created_at ASC
+      `,
+      [userId]
+    ).catch(() => ({ rows: [] }));
+
+    const globalRoles = globalRolesRes.rows.map((r) => r.role.toLowerCase());
+
     // 3. Fetch activity stats aggregates
     const [tasksRes, assignmentsRes] = await Promise.all([
       query(
@@ -150,15 +165,26 @@ async function getUserProfile(req, res, next) {
       website: rawSocials.website || '',
     };
 
-    // Determine primary display role
-    let displayRole = (user.default_role || 'member').toLowerCase();
-    if (['admin', 'officer'].includes(displayRole)) {
-      // Keep admin or officer as highest priority
-    } else if (memberships.some((m) => m.role_in_committee === 'lead')) {
-      displayRole = 'lead';
-    } else if (memberships.some((m) => m.role_in_committee === 'hr')) {
-      displayRole = 'hr';
-    }
+    // Determine primary display role using priority hierarchy:
+    // admin(1) > officer(2) > lead(3) > hr(4) > publisher(5) > scanner/event_scanner(6) > member(7) > applicant(8)
+    const ROLE_PRIORITY = {
+      admin: 1, officer: 2, lead: 3, hr: 4,
+      publisher: 5, event_scanner: 6, scanner: 6, member: 7, applicant: 8,
+    };
+
+    const roleCandidates = [
+      ...globalRoles,                                           // auth_user_roles (most authoritative)
+      user.default_role ? user.default_role.toLowerCase() : null, // fallback: users.default_role
+      ...memberships.map((m) => (m.role_in_committee || '').toLowerCase()), // committee roles
+    ].filter(Boolean);
+
+    const displayRole = roleCandidates.length > 0
+      ? roleCandidates.reduce((best, r) => {
+          const bP = ROLE_PRIORITY[best] ?? 99;
+          const rP = ROLE_PRIORITY[r] ?? 99;
+          return rP < bP ? r : best;
+        })
+      : 'member';
 
     // 5. Structure payload
     const profile = {

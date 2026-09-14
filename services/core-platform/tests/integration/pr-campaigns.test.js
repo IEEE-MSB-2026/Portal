@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 const http = require('node:http');
 const path = require('node:path');
 
+const { randomUUID } = require('crypto');
 const {
   IDS,
   bootstrapTestDatabase,
@@ -10,6 +11,7 @@ const {
   createServer,
   getBaseUrl,
   prepareDatabase,
+  query,
   setupTestEnv,
   signedHeaders,
 } = require('./helpers');
@@ -834,6 +836,118 @@ test('pr campaigns: hr outreach categorization and default filtering', async () 
     );
   } finally {
     await captureServer.close();
+  }
+});
+
+test('pr campaigns: event ticket dispatch succeeds for OC lead, but forbidden for regular member', async () => {
+  await prepareDatabase();
+  const ocCommitteeId = '44444444-4444-4444-8444-444444444444';
+  const ocLeadUserId = '55555555-5555-4555-8555-555555555555';
+  const memberUserId = '66666666-6666-4666-8666-666666666666';
+
+  await query(
+    `INSERT INTO committees (id, slug, name, is_active) VALUES ($1, 'oc', 'Operations Committee', TRUE) ON CONFLICT (id) DO NOTHING`,
+    [ocCommitteeId]
+  );
+  await query(
+    `INSERT INTO users (id, email, password_hash, name, default_role, default_scope_type, default_scope_id)
+     VALUES
+       ($1, 'lead.oc@ieee.local', 'hash', 'Lead OC', 'member', 'committee', $3),
+       ($2, 'member.regular@ieee.local', 'hash', 'Regular Member', 'member', 'global', 'global')
+     ON CONFLICT (id) DO NOTHING`,
+    [ocLeadUserId, memberUserId, ocCommitteeId]
+  );
+  await query(
+    `INSERT INTO committee_memberships (id, committee_id, user_id, role_in_committee)
+     VALUES ($1, $2, $3, 'lead')
+     ON CONFLICT (committee_id, user_id) DO NOTHING`,
+    [randomUUID(), ocCommitteeId, ocLeadUserId]
+  );
+
+  const emailServer = await startCaptureServer({ statusCode: 202 });
+
+  try {
+    await withEnv(
+      {
+        EMAIL_SERVICE_URL: emailServer.baseUrl,
+        EMAIL_SERVICE_AUTH_TOKEN: 'campaign-token',
+      },
+      async () => {
+        const app = loadFreshApp();
+        const server = await createServer(app);
+
+        try {
+          const actorOcLead = {
+            userId: ocLeadUserId,
+            userEmail: 'lead.oc@ieee.local',
+            userRole: 'lead',
+            scopeType: 'committee',
+            scopeId: ocCommitteeId,
+          };
+          const actorMember = {
+            userId: memberUserId,
+            userEmail: 'member.regular@ieee.local',
+            userRole: 'member',
+            scopeType: 'global',
+            scopeId: 'global',
+          };
+
+          // 1. Regular member attempting to create event_ticket_dispatch campaign should get 403
+          const memberAttempt = await createCampaign({
+            server,
+            actor: actorMember,
+            body: {
+              title: 'Unauthorized Event Tickets',
+              subject: 'Your Ticket',
+              body: 'Ticket Body',
+              segmentType: 'custom_sheet',
+              customRecipients: [{ email: 'attendee@ieee.local', name: 'Attendee' }],
+              metadata: { category: 'event_ticket_dispatch', source: 'operations_studio' },
+            },
+          });
+          assert.equal(memberAttempt.response.status, 403);
+
+          // 2. OC Lead creating event_ticket_dispatch campaign should succeed (201)
+          const ocCreated = await createCampaign({
+            server,
+            actor: actorOcLead,
+            body: {
+              title: 'Event Tickets: Tech Summit',
+              subject: 'Your QR Ticket Pass',
+              body: 'Hello {{user.name}}, here is your pass.',
+              segmentType: 'custom_sheet',
+              customRecipients: [{ email: 'attendee@ieee.local', name: 'Attendee' }],
+              metadata: { category: 'event_ticket_dispatch', source: 'operations_studio' },
+            },
+          });
+          assert.equal(ocCreated.response.status, 201);
+          assert.equal(ocCreated.payload.campaign.status, 'draft');
+
+          // 3. OC Lead sending event_ticket_dispatch campaign should succeed (200)
+          const ocSent = await sendCampaign({
+            server,
+            actor: actorOcLead,
+            campaignId: ocCreated.payload.campaign.id,
+          });
+          assert.equal(ocSent.response.status, 200);
+          assert.equal(ocSent.payload.campaign.status, 'sent');
+          assert.equal(ocSent.payload.dispatch.sentCount, 1);
+
+          // 4. OC Lead viewing delivery details should succeed (200)
+          const delivery = await getDelivery({
+            server,
+            actor: actorOcLead,
+            campaignId: ocCreated.payload.campaign.id,
+          });
+          assert.equal(delivery.response.status, 200);
+          assert.ok(delivery.payload.delivery);
+        } finally {
+          await new Promise((resolve) => server.close(resolve));
+        }
+      }
+    );
+  } finally {
+    await emailServer.close();
   }
 });
 

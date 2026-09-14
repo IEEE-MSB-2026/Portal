@@ -1,6 +1,7 @@
 const config = require('../config');
 const { resolveIdentity } = require('../middlewares/authenticate');
 const { buildCoreGatewayHeaders, buildEventClaimsHeaders } = require('../utils/signer');
+const userRepository = require('../repositories/userRepository');
 
 async function proxyToCore(req, res, next) {
   let identity;
@@ -85,8 +86,32 @@ async function proxyToEvents(req, res, next) {
 
   const targetUrl = `${config.eventRegisterUrl}${fullApiPath}${queryString ? `?${queryString}` : ''}`;
 
+  let effectiveIdentity = identity;
+  if (identity?.userId && identity.userId !== 'guest-1' && !['admin', 'officer', 'lead'].includes(identity.role)) {
+    try {
+      const user = await userRepository.findById(identity.userId);
+      const hasOcLead = (user?.availableScopes || []).some(
+        (s) =>
+          (s.role === 'lead' || s.role === 'chair') &&
+          (s.committeeSlug === 'oc' ||
+            s.committeeSlug === 'operations' ||
+            s.committeeSlug === 'organizing' ||
+            s.committeeName?.toLowerCase().includes('operations') ||
+            s.committeeName?.toLowerCase().includes('organizing'))
+      );
+      if (hasOcLead) {
+        effectiveIdentity = {
+          ...identity,
+          role: 'lead',
+        };
+      }
+    } catch {
+      // Non-blocking fallback to resolved identity
+    }
+  }
+
   const signedClaimsHeaders = buildEventClaimsHeaders(
-    identity,
+    effectiveIdentity,
     config.claimsHmacSecret
   );
 

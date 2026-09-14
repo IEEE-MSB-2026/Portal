@@ -166,7 +166,14 @@ async function canSendCampaign(identity, committeeId, campaign = null) {
       return true;
     }
   }
+  const isTicketDispatch = campaign?.metadata?.category === 'event_ticket_dispatch' || campaign?.metadata?.source === 'operations_studio';
+  if (isTicketDispatch) {
+    if (await authzService.isOperationsCommitteeLead(identity) || identity.role === 'lead' || identity.role === 'publisher') {
+      return true;
+    }
+  }
   if (await authzService.isHrCommitteeLead(identity)) return true;
+  if (await authzService.isOperationsCommitteeLead(identity)) return true;
   if (identity.role === 'publisher') {
     if (identity.scopeType === 'global') return true;
     if (identity.scopeType === 'committee') {
@@ -184,6 +191,12 @@ async function canManageCampaignRecord(identity, campaign) {
   if (authzService.isPrivilegedGlobalAccess(identity)) return true;
   if (campaign.metadata?.category === 'hr_outreach') {
     if (await authzService.isHrCommitteeLead(identity) || identity.role === 'lead' || identity.role === 'publisher') {
+      return true;
+    }
+  }
+  const isTicketDispatch = campaign.metadata?.category === 'event_ticket_dispatch' || campaign.metadata?.source === 'operations_studio';
+  if (isTicketDispatch) {
+    if (await authzService.isOperationsCommitteeLead(identity) || identity.role === 'lead' || identity.role === 'publisher') {
       return true;
     }
   }
@@ -218,8 +231,14 @@ async function createCampaign(req, res, next) {
     const isHrLead = await authzService.isHrCommitteeLead(req.identity);
     const canCreateHr = isHrOutreach && (isHrLead || authzService.isPrivilegedGlobalAccess(req.identity) || req.identity.role === 'lead' || req.identity.role === 'publisher');
 
+    const isTicketDispatch = payload.metadata?.category === 'event_ticket_dispatch' || payload.metadata?.source === 'operations_studio';
+    const isOperationsLead = await authzService.isOperationsCommitteeLead(req.identity);
+    const canCreateTicketDispatch = isTicketDispatch && (isOperationsLead || authzService.isPrivilegedGlobalAccess(req.identity) || req.identity.role === 'lead' || req.identity.role === 'publisher');
+
     if (canCreateHr) {
       // Allowed for HR outreach
+    } else if (canCreateTicketDispatch) {
+      // Allowed for Event Ticket Dispatch from Operations Studio
     } else if (payload.segmentType === 'all_members' || (payload.segmentType === 'committee_leads' && !payload.committeeId)) {
       if (!(authzService.isPrivilegedGlobalAccess(req.identity) || isGlobalPublisher(req.identity))) {
         throw new HttpError(403, 'Forbidden');
@@ -230,7 +249,7 @@ async function createCampaign(req, res, next) {
         throw new HttpError(404, 'Committee not found');
       }
       await ensurePrManageAccess(req.identity, payload.committeeId);
-    } else if (!(authzService.isPrivilegedGlobalAccess(req.identity) || isGlobalPublisher(req.identity) || (isHrOutreach && isHrLead))) {
+    } else if (!(authzService.isPrivilegedGlobalAccess(req.identity) || isGlobalPublisher(req.identity) || (isHrOutreach && isHrLead) || (isTicketDispatch && isOperationsLead))) {
       throw new HttpError(403, 'Forbidden');
     }
 
@@ -428,9 +447,16 @@ async function duplicateCampaign(req, res, next) {
       throw new HttpError(404, 'Campaign not found');
     }
 
+    const isTicketDispatch = existing.metadata?.category === 'event_ticket_dispatch' || existing.metadata?.source === 'operations_studio';
+    const isOperationsLead = isTicketDispatch && (await authzService.isOperationsCommitteeLead(req.identity) || req.identity.role === 'lead');
+
     if (existing.committee_id) {
-      await ensurePrManageAccess(req.identity, existing.committee_id);
-    } else if (!(authzService.isPrivilegedGlobalAccess(req.identity) || isGlobalPublisher(req.identity))) {
+      if (isTicketDispatch && isOperationsLead) {
+        // Allowed for Operations Lead
+      } else {
+        await ensurePrManageAccess(req.identity, existing.committee_id);
+      }
+    } else if (!(authzService.isPrivilegedGlobalAccess(req.identity) || isGlobalPublisher(req.identity) || isOperationsLead)) {
       throw new HttpError(403, 'Forbidden');
     }
 
@@ -471,7 +497,8 @@ async function listCampaigns(req, res, next) {
       await ensurePrManageAccess(req.identity, committeeId);
     } else {
       const isHrLead = await authzService.isHrCommitteeLead(req.identity);
-      if (isHrLead || req.identity.role === 'lead' || req.identity.role === 'publisher' || category === 'hr_outreach' || includeHr) {
+      const isOperationsLead = await authzService.isOperationsCommitteeLead(req.identity);
+      if (isHrLead || isOperationsLead || req.identity.role === 'lead' || req.identity.role === 'publisher' || category === 'hr_outreach' || category === 'event_ticket_dispatch' || includeHr) {
         // Allowed to list campaigns
       } else {
         committeeIds = await authzService.listManageablePrCommitteeIds(req.identity);
@@ -719,9 +746,16 @@ async function getCampaignDelivery(req, res, next) {
       throw new HttpError(404, 'Campaign not found');
     }
 
+    const isTicketDispatch = campaign.metadata?.category === 'event_ticket_dispatch' || campaign.metadata?.source === 'operations_studio';
+    const isOperationsLead = isTicketDispatch && (await authzService.isOperationsCommitteeLead(req.identity) || req.identity.role === 'lead');
+
     if (campaign.committee_id) {
-      await ensurePrManageAccess(req.identity, campaign.committee_id);
-    } else if (!(authzService.isPrivilegedGlobalAccess(req.identity) || isGlobalPublisher(req.identity))) {
+      if (isTicketDispatch && isOperationsLead) {
+        // Allowed for Operations Lead
+      } else {
+        await ensurePrManageAccess(req.identity, campaign.committee_id);
+      }
+    } else if (!(authzService.isPrivilegedGlobalAccess(req.identity) || isGlobalPublisher(req.identity) || isOperationsLead)) {
       throw new HttpError(403, 'Forbidden');
     }
 
