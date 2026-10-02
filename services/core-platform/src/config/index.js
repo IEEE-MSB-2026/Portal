@@ -89,7 +89,7 @@ const config = {
   notification: {
     emailServiceUrl: parseOptionalUrl('EMAIL_SERVICE_URL'),
     emailServiceAuthToken: optionalEnv('EMAIL_SERVICE_AUTH_TOKEN'),
-    emailServiceTimeoutMs: parsePositiveInteger('EMAIL_SERVICE_TIMEOUT_MS', 3000),
+    emailServiceTimeoutMs: parsePositiveInteger('EMAIL_SERVICE_TIMEOUT_MS', 15000),
   },
   iam: {
     serviceUrl: parseOptionalUrl('IAM_SERVICE_URL'),

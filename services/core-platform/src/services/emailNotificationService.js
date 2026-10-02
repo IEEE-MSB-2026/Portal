@@ -138,7 +138,7 @@ async function postEmail(payload, context) {
   }
 
   const controller = new AbortController();
-  const timeoutMs = notificationConfig.emailServiceTimeoutMs || 3000;
+  const timeoutMs = notificationConfig.emailServiceTimeoutMs || 15000;
   const timeoutHandle = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
