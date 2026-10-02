@@ -951,5 +951,137 @@ test('pr campaigns: event ticket dispatch succeeds for OC lead, but forbidden fo
   }
 });
 
+test('pr campaigns: dynamic attachments hydration, skipping unmatched, and auto-cleanup', async () => {
+  await prepareDatabase();
+  const emailServer = await startCaptureServer({ statusCode: 202 });
+
+  const mockPdfBuffer = Buffer.from('%PDF-1.4 Dynamic Attachment Test Content');
+  const pdfServer = http.createServer((req, res) => {
+    res.writeHead(200, { 'Content-Type': 'application/pdf' });
+    res.end(mockPdfBuffer);
+  });
+  await new Promise((resolve) => pdfServer.listen(0, '127.0.0.1', resolve));
+  const pdfPort = pdfServer.address().port;
+  const pdfUrl = `http://127.0.0.1:${pdfPort}/alice_certificate.pdf`;
+
+  try {
+    await withEnv(
+      {
+        EMAIL_SERVICE_URL: emailServer.baseUrl,
+        EMAIL_SERVICE_AUTH_TOKEN: 'campaign-token',
+      },
+      async () => {
+        const app = loadFreshApp();
+        const server = await createServer(app);
+
+        try {
+          // 1. Create a campaign with dynamic attachments config and 2 recipients:
+          // Alice has a matched PDF URL, Bob is missing a PDF attachment
+          const created = await createCampaign({
+            server,
+            actor: ACTORS.publisherGlobal,
+            body: {
+              title: 'Annual Certificates Campaign',
+              subject: 'Your Certificate, {{name}}',
+              body: 'Hello {{name}}, please find attached your certificate.',
+              segmentType: 'custom_sheet',
+              customRecipients: [
+                {
+                  email: 'alice@example.com',
+                  name: 'Alice Smith',
+                  attachments: [
+                    {
+                      filename: 'Alice_Smith_Certificate.pdf',
+                      url: pdfUrl,
+                      publicId: 'cld_alice_cert_123',
+                      mimeType: 'application/pdf',
+                    },
+                  ],
+                },
+                {
+                  email: 'bob@example.com',
+                  name: 'Bob Jones',
+                  attachments: [],
+                },
+              ],
+              metadata: {
+                hasDynamicAttachments: true,
+                dynamicAttachmentsConfig: {
+                  tag: '{{name}}',
+                  folderName: 'Certificates_2026',
+                  skipUnmatched: true,
+                  matchedCount: 1,
+                  missingCount: 1,
+                },
+              },
+            },
+          });
+
+          assert.equal(created.response.status, 201);
+          const campaignId = created.payload.campaign.id;
+
+          // 2. Dispatch campaign
+          const sent = await sendCampaign({
+            server,
+            actor: ACTORS.publisherGlobal,
+            campaignId,
+          });
+
+          assert.equal(sent.response.status, 200);
+          assert.equal(sent.payload.campaign.status, 'sent');
+          assert.equal(sent.payload.dispatch.sentCount, 1); // Only Alice was sent
+          assert.equal(sent.payload.dispatch.skippedCount, 1); // Bob was skipped
+
+          // 3. Verify emailServer received 1 email payload for Alice with base64 attachment
+          assert.equal(emailServer.requests.length, 1);
+          const emailPayload = emailServer.requests[0].body;
+          assert.equal(emailPayload.to[0], 'alice@example.com');
+          assert.equal(emailPayload.subject, 'Your Certificate, Alice Smith');
+          assert.equal(Array.isArray(emailPayload.attachments), true);
+          assert.equal(emailPayload.attachments.length, 1);
+          assert.equal(emailPayload.attachments[0].filename, 'Alice_Smith_Certificate.pdf');
+          assert.equal(emailPayload.attachments[0].mimeType, 'application/pdf');
+          assert.equal(
+            emailPayload.attachments[0].content,
+            mockPdfBuffer.toString('base64')
+          );
+
+          // 4. Verify delivery logs show Alice as sent and Bob as skipped
+          const delivery = await getDelivery({
+            server,
+            actor: ACTORS.publisherGlobal,
+            campaignId,
+          });
+          assert.equal(delivery.response.status, 200);
+          const logs = delivery.payload.delivery.attempts[0]?.logs || [];
+          assert.equal(logs.length, 2);
+
+          const bobLog = logs.find((l) => l.email === 'bob@example.com');
+          assert.ok(bobLog);
+          assert.equal(bobLog.status, 'skipped');
+          assert.equal(bobLog.error, 'missing_attachment');
+
+          const aliceLog = logs.find((l) => l.email === 'alice@example.com');
+          assert.ok(aliceLog);
+          assert.equal(aliceLog.status, 'sent');
+
+          // 5. Verify cleanup: file_assets table has queued Alice's attachment for deletion
+          const fileAssets = await query(
+            `SELECT * FROM file_assets WHERE cloudinary_public_id = $1`,
+            ['cld_alice_cert_123']
+          );
+          assert.equal(fileAssets.rows.length, 1);
+          assert.equal(fileAssets.rows[0].status, 'pending_deletion');
+        } finally {
+          await new Promise((resolve) => server.close(resolve));
+        }
+      }
+    );
+  } finally {
+    await new Promise((resolve) => pdfServer.close(resolve));
+    await emailServer.close();
+  }
+});
+
 
 

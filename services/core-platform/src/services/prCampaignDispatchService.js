@@ -1,7 +1,51 @@
 const { randomUUID } = require('crypto');
 const prCampaignsRepository = require('../repositories/prCampaignsRepository');
 const hrApplicationsRepository = require('../repositories/hrApplicationsRepository');
+const fileOutboxRepository = require('../repositories/fileOutboxRepository');
 const emailNotificationService = require('./emailNotificationService');
+
+/**
+ * Hydrates attachments that have a remote URL into Base64 buffers required by email providers.
+ */
+async function hydrateAttachmentBuffers(attachments = []) {
+  if (!Array.isArray(attachments) || attachments.length === 0) return [];
+  const hydrated = [];
+  for (const att of attachments) {
+    if (!att) continue;
+    if (att.content || att.contentBase64) {
+      hydrated.push({
+        filename: att.filename || 'attachment.pdf',
+        mimeType: att.mimeType || 'application/pdf',
+        content: att.content || att.contentBase64,
+        url: att.url || null,
+        publicId: att.publicId || null,
+        assetId: att.assetId || null,
+      });
+      continue;
+    }
+    if (att.url) {
+      try {
+        const res = await fetch(att.url);
+        if (!res.ok) {
+          throw new Error(`HTTP ${res.status} ${res.statusText}`);
+        }
+        const arrayBuf = await res.arrayBuffer();
+        hydrated.push({
+          filename: att.filename || 'attachment.pdf',
+          mimeType: att.mimeType || 'application/pdf',
+          content: Buffer.from(arrayBuf).toString('base64'),
+          url: att.url,
+          publicId: att.publicId || null,
+          assetId: att.assetId || null,
+        });
+      } catch (err) {
+        console.error(`Failed to hydrate dynamic attachment "${att.filename}" from ${att.url}:`, err.message);
+        throw new Error(`Failed to load dynamic attachment "${att.filename}": ${err.message}`);
+      }
+    }
+  }
+  return hydrated;
+}
 
 /**
  * Interpolates dot-notation template tags: {{user.name}}, {{user.email}}, {{user.committee}}, {{sheet.Column}}, etc.
@@ -212,15 +256,52 @@ async function dispatchCampaign({
     customRecipients,
   });
 
+  // Check for dynamic attachments configuration in campaign metadata
+  let campaignMeta = {};
+  try {
+    if (typeof campaign.metadata === 'string') {
+      campaignMeta = JSON.parse(campaign.metadata);
+    } else if (typeof campaign.metadata === 'object' && campaign.metadata !== null) {
+      campaignMeta = campaign.metadata;
+    }
+  } catch {
+    campaignMeta = {};
+  }
+
+  const hasDynamicAttachments = Boolean(
+    campaignMeta.hasDynamicAttachments ||
+    campaignMeta.dynamicAttachmentsConfig
+  );
+  const skipUnmatched = Boolean(
+    campaignMeta.dynamicAttachmentsConfig?.skipUnmatched ?? true
+  );
+
   // Deduplicate and build interpolated payloads per recipient
   const seenEmails = new Set();
   const personalizedRecipients = [];
+  const skippedRecipients = [];
 
   for (const r of rawRecipients) {
     if (!r.email) continue;
     const cleanEmail = r.email.trim().toLowerCase();
     if (seenEmails.has(cleanEmail)) continue;
     seenEmails.add(cleanEmail);
+
+    const rawAttachments = r.attachments || r.customFields?.attachments || [];
+
+    // If campaign has dynamic attachments and user chose to skip recipients missing attachment
+    if (hasDynamicAttachments && skipUnmatched && rawAttachments.length === 0) {
+      skippedRecipients.push({
+        email: cleanEmail,
+        name: r.name || 'Member',
+        status: 'skipped',
+        error: 'missing_attachment',
+        statusCode: null,
+        sentAt: new Date().toISOString(),
+        attachments: [],
+      });
+      continue;
+    }
 
     const interpSubject = renderTemplate(campaign.subject, r);
     const interpBody = renderTemplate(campaign.body, r);
@@ -231,13 +312,15 @@ async function dispatchCampaign({
       committeeName: r.committeeName,
     });
 
+    const hydratedAttachments = await hydrateAttachmentBuffers(rawAttachments);
+
     personalizedRecipients.push({
       email: cleanEmail,
       name: r.name,
       subject: interpSubject,
       text: interpBody,
       html: htmlBody,
-      attachments: r.attachments || r.customFields?.attachments || [],
+      attachments: hydratedAttachments,
       participantId: r.participantId || r.customFields?.participantId || null,
     });
   }
@@ -248,11 +331,11 @@ async function dispatchCampaign({
       reason: 'max_recipients_exceeded',
       statusCode: 400,
       dispatchRequestId,
-      recipientCount: personalizedRecipients.length,
+      recipientCount: personalizedRecipients.length + skippedRecipients.length,
       sentCount: 0,
       failedCount: 0,
-      skippedCount: 0,
-      logs: [],
+      skippedCount: skippedRecipients.length,
+      logs: skippedRecipients,
     };
   }
 
@@ -266,14 +349,51 @@ async function dispatchCampaign({
     recipients: personalizedRecipients,
   });
 
-  const detailedLogs = (notification.results || []).map((res) => ({
-    email: res.recipientEmail,
-    name: res.name || 'Member',
-    status: res.ok ? 'sent' : 'failed',
-    error: res.ok ? null : (res.reason || 'delivery_failed'),
-    statusCode: res.statusCode || null,
-    sentAt: res.sentAt || new Date().toISOString(),
-  }));
+  const detailedLogs = [
+    ...skippedRecipients,
+    ...(notification.results || []).map((res) => ({
+      email: res.recipientEmail,
+      name: res.name || 'Member',
+      status: res.ok ? 'sent' : 'failed',
+      error: res.ok ? null : (res.reason || 'delivery_failed'),
+      statusCode: res.statusCode || null,
+      sentAt: res.sentAt || new Date().toISOString(),
+      attachments: res.attachments || [],
+    })),
+  ];
+
+  // Automatic cleanup of staged dynamic attachments to preserve storage
+  if (hasDynamicAttachments) {
+    try {
+      const filesToClean = [];
+      for (const r of rawRecipients) {
+        const atts = r.attachments || r.customFields?.attachments || [];
+        for (const a of atts) {
+          if (a.assetId || a.publicId || a.url) {
+            filesToClean.push({
+              fileAssetId: a.assetId || null,
+              cloudinaryPublicId: a.publicId || null,
+              secureUrl: a.url || null,
+              resourceType: 'raw',
+            });
+          }
+        }
+      }
+      if (filesToClean.length > 0) {
+        await fileOutboxRepository.queueBatchDeletions(filesToClean);
+        const fileServiceUrl = process.env.FILE_SERVICE_URL || 'http://localhost:5080';
+        fetch(`${fileServiceUrl}/cleanup/process-deletions`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ limit: 100 }),
+        }).catch(() => {});
+      }
+    } catch (cleanupErr) {
+      console.warn('Failed to queue staged attachment cleanup post-dispatch:', cleanupErr.message);
+    }
+  }
+
+  const totalSkipped = (notification.skippedCount || 0) + skippedRecipients.length;
 
   if (!notification.ok) {
     return {
@@ -281,10 +401,10 @@ async function dispatchCampaign({
       reason: notification.reason,
       statusCode: notification.reason === 'not_configured' ? 503 : 502,
       dispatchRequestId,
-      recipientCount: notification.totalRecipients,
+      recipientCount: (notification.totalRecipients || 0) + skippedRecipients.length,
       sentCount: notification.sentCount,
       failedCount: notification.failedCount,
-      skippedCount: notification.skippedCount,
+      skippedCount: totalSkipped,
       logs: detailedLogs,
     };
   }
@@ -343,10 +463,10 @@ async function dispatchCampaign({
     reason: notification.reason,
     statusCode: 200,
     dispatchRequestId,
-    recipientCount: notification.totalRecipients,
+    recipientCount: (notification.totalRecipients || 0) + skippedRecipients.length,
     sentCount: notification.sentCount,
     failedCount: notification.failedCount,
-    skippedCount: notification.skippedCount,
+    skippedCount: totalSkipped,
     logs: detailedLogs,
   };
 }

@@ -50,6 +50,8 @@ const config = {
     'events',
     'applications',
     'announcements',
+    'campaign_attachments',
+    'campaigns',
     'general',
   ]),
 };

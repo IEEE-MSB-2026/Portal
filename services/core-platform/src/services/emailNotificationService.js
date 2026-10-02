@@ -512,6 +512,7 @@ async function sendPrCampaignDispatchNotifications({
         recipientEmail: item.email,
         name: item.name || 'Member',
         participantId: item.participantId || null,
+        attachments: (item.attachments || []).map((a) => ({ filename: a.filename })),
         sentAt: new Date().toISOString(),
       };
     }));

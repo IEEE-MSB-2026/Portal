@@ -7,6 +7,7 @@ const authzService = require('../services/authzService');
 const prCampaignDispatchService = require('../services/prCampaignDispatchService');
 const committeesRepository = require('../repositories/committeesRepository');
 const prCampaignsRepository = require('../repositories/prCampaignsRepository');
+const fileOutboxRepository = require('../repositories/fileOutboxRepository');
 
 const ALLOWED_SEGMENTS = new Set([
   'all_members',
@@ -356,6 +357,41 @@ async function deleteCampaign(req, res, next) {
     const canManage = await canManageCampaignRecord(req.identity, existing);
     if (!canManage) {
       throw new HttpError(403, 'Forbidden');
+    }
+
+    // Clean up any staged dynamic attachment files associated with this campaign
+    try {
+      let customRecipients = [];
+      if (typeof existing.custom_recipients === 'string') {
+        customRecipients = JSON.parse(existing.custom_recipients);
+      } else if (Array.isArray(existing.custom_recipients)) {
+        customRecipients = existing.custom_recipients;
+      }
+      const filesToClean = [];
+      for (const r of customRecipients) {
+        const atts = r?.attachments || r?.customFields?.attachments || [];
+        for (const a of atts) {
+          if (a?.assetId || a?.publicId || a?.url) {
+            filesToClean.push({
+              fileAssetId: a.assetId || null,
+              cloudinaryPublicId: a.publicId || null,
+              secureUrl: a.url || null,
+              resourceType: 'raw',
+            });
+          }
+        }
+      }
+      if (filesToClean.length > 0) {
+        await fileOutboxRepository.queueBatchDeletions(filesToClean);
+        const fileServiceUrl = process.env.FILE_SERVICE_URL || 'http://localhost:5080';
+        fetch(`${fileServiceUrl}/cleanup/process-deletions`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ limit: 100 }),
+        }).catch(() => {});
+      }
+    } catch (cleanupErr) {
+      logger.warn({ error: cleanupErr.message }, 'Failed to queue attachment cleanup on campaign deletion');
     }
 
     await prCampaignsRepository.deleteCampaign(campaignId);

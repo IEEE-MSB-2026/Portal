@@ -7,6 +7,8 @@ const FOLDER_ALIASES = {
   brand: 'brand_kit',
   brand_assets: 'brand_kit',
   brandkit: 'brand_kit',
+  campaigns: 'campaign_attachments',
+  campaign_attachment: 'campaign_attachments',
 };
 
 function normalizeFolder(folder) {
