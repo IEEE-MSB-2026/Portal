@@ -1083,5 +1083,141 @@ test('pr campaigns: dynamic attachments hydration, skipping unmatched, and auto-
   }
 });
 
+test('pr campaigns: shared attachment (one for all) hydration, sending to all recipients, and auto-cleanup', async () => {
+  await prepareDatabase();
+  const emailServer = await startCaptureServer({ statusCode: 202 });
+
+  const mockPdfBuffer = Buffer.from('%PDF-1.4 mock shared agenda binary content');
+  const pdfServer = http.createServer((req, res) => {
+    res.writeHead(200, { 'Content-Type': 'application/pdf' });
+    res.end(mockPdfBuffer);
+  });
+  await new Promise((resolve) => pdfServer.listen(0, '127.0.0.1', resolve));
+  const pdfPort = pdfServer.address().port;
+  const pdfUrl = `http://127.0.0.1:${pdfPort}/shared_agenda.pdf`;
+
+  try {
+    await withEnv(
+      {
+        EMAIL_SERVICE_URL: emailServer.baseUrl,
+        EMAIL_SERVICE_AUTH_TOKEN: 'campaign-token',
+      },
+      async () => {
+        const app = loadFreshApp();
+        const server = await createServer(app);
+
+        try {
+          // Pre-register shared asset in file_assets table
+          await query(
+            `INSERT INTO file_assets (id, cloudinary_public_id, secure_url, resource_type, format, bytes, purpose, status)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+             ON CONFLICT (cloudinary_public_id) DO NOTHING`,
+            [
+              '00000000-0000-4000-8000-000000000999',
+              'cld_agenda_shared_999',
+              pdfUrl,
+              'raw',
+              'pdf',
+              mockPdfBuffer.length,
+              'campaign_attachment',
+              'ready',
+            ]
+          );
+
+          // 1. Create a campaign with shared attachment in metadata and 2 recipients
+          const created = await createCampaign({
+            server,
+            actor: ACTORS.publisherGlobal,
+            body: {
+              title: 'Branch Workshop with Shared Agenda',
+              subject: 'Workshop Agenda for {{name}}',
+              body: 'Hello {{name}}, please find the attached event agenda.',
+              segmentType: 'custom_sheet',
+              customRecipients: [
+                {
+                  email: 'alice@example.com',
+                  name: 'Alice Smith',
+                },
+                {
+                  email: 'bob@example.com',
+                  name: 'Bob Jones',
+                },
+              ],
+              metadata: {
+                sharedAttachment: {
+                  filename: 'Event_Agenda.pdf',
+                  url: pdfUrl,
+                  publicId: 'cld_agenda_shared_999',
+                  assetId: '00000000-0000-4000-8000-000000000999',
+                  mimeType: 'application/pdf',
+                  size: mockPdfBuffer.length,
+                },
+              },
+            },
+          });
+          assert.equal(created.response.status, 201);
+          const campaignId = created.payload.campaign.id;
+
+          // 2. Dispatch campaign
+          const sent = await sendCampaign({
+            server,
+            actor: ACTORS.publisherGlobal,
+            campaignId,
+          });
+          assert.equal(sent.response.status, 200);
+          assert.equal(sent.payload.campaign.status, 'sent');
+          assert.equal(sent.payload.dispatch.sentCount, 2);
+
+          // 3. Verify emailServer received 2 emails with the shared attachment
+          assert.equal(emailServer.requests.length, 2);
+          for (const reqItem of emailServer.requests) {
+            const emailPayload = reqItem.body;
+            assert.equal(Array.isArray(emailPayload.attachments), true);
+            assert.equal(emailPayload.attachments.length, 1);
+            assert.equal(emailPayload.attachments[0].filename, 'Event_Agenda.pdf');
+            assert.equal(emailPayload.attachments[0].mimeType, 'application/pdf');
+            assert.equal(
+              emailPayload.attachments[0].content,
+              mockPdfBuffer.toString('base64')
+            );
+          }
+
+          // 4. Verify delivery logs show both recipients as sent with the attachment
+          const delivery = await getDelivery({
+            server,
+            actor: ACTORS.publisherGlobal,
+            campaignId,
+          });
+          assert.equal(delivery.response.status, 200);
+          const logs = delivery.payload.delivery.attempts[0]?.logs || [];
+          assert.equal(logs.length, 2);
+          assert.equal(logs.every((l) => l.status === 'sent'), true);
+          assert.equal(
+            logs.every(
+              (l) =>
+                Array.isArray(l.attachments) &&
+                l.attachments[0]?.filename === 'Event_Agenda.pdf'
+            ),
+            true
+          );
+
+          // 5. Verify cleanup: shared attachment queued for deletion
+          const fileAssets = await query(
+            `SELECT * FROM file_assets WHERE cloudinary_public_id = $1`,
+            ['cld_agenda_shared_999']
+          );
+          assert.equal(fileAssets.rows.length, 1);
+          assert.equal(fileAssets.rows[0].status, 'pending_deletion');
+        } finally {
+          await new Promise((resolve) => server.close(resolve));
+        }
+      }
+    );
+  } finally {
+    await new Promise((resolve) => pdfServer.close(resolve));
+    await emailServer.close();
+  }
+});
+
 
 

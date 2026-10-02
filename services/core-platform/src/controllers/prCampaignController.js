@@ -359,8 +359,25 @@ async function deleteCampaign(req, res, next) {
       throw new HttpError(403, 'Forbidden');
     }
 
-    // Clean up any staged dynamic attachment files associated with this campaign
+    // Clean up any staged attachment files (shared or dynamic) associated with this campaign
     try {
+      let campaignMeta = {};
+      try {
+        if (typeof existing.metadata === 'string') {
+          campaignMeta = JSON.parse(existing.metadata);
+        } else if (typeof existing.metadata === 'object' && existing.metadata !== null) {
+          campaignMeta = existing.metadata;
+        }
+      } catch {
+        campaignMeta = {};
+      }
+
+      const sharedAttachments = Array.isArray(campaignMeta.sharedAttachments)
+        ? campaignMeta.sharedAttachments
+        : (campaignMeta.sharedAttachment
+            ? [campaignMeta.sharedAttachment]
+            : (Array.isArray(campaignMeta.attachments) ? campaignMeta.attachments : []));
+
       let customRecipients = [];
       if (typeof existing.custom_recipients === 'string') {
         customRecipients = JSON.parse(existing.custom_recipients);
@@ -368,6 +385,18 @@ async function deleteCampaign(req, res, next) {
         customRecipients = existing.custom_recipients;
       }
       const filesToClean = [];
+
+      for (const a of sharedAttachments) {
+        if (a && (a.assetId || a.publicId || a.url)) {
+          filesToClean.push({
+            fileAssetId: a.assetId || null,
+            cloudinaryPublicId: a.publicId || null,
+            secureUrl: a.url || null,
+            resourceType: 'raw',
+          });
+        }
+      }
+
       for (const r of customRecipients) {
         const atts = r?.attachments || r?.customFields?.attachments || [];
         for (const a of atts) {

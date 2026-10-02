@@ -7,7 +7,7 @@ const emailNotificationService = require('./emailNotificationService');
 /**
  * Hydrates attachments that have a remote URL into Base64 buffers required by email providers.
  */
-async function hydrateAttachmentBuffers(attachments = []) {
+async function hydrateAttachmentBuffers(attachments = [], urlCache = new Map()) {
   if (!Array.isArray(attachments) || attachments.length === 0) return [];
   const hydrated = [];
   for (const att of attachments) {
@@ -25,22 +25,31 @@ async function hydrateAttachmentBuffers(attachments = []) {
     }
     if (att.url) {
       try {
-        const res = await fetch(att.url);
-        if (!res.ok) {
-          throw new Error(`HTTP ${res.status} ${res.statusText}`);
+        let base64Content;
+        if (urlCache && urlCache.has(att.url)) {
+          base64Content = urlCache.get(att.url);
+        } else {
+          const res = await fetch(att.url);
+          if (!res.ok) {
+            throw new Error(`HTTP ${res.status} ${res.statusText}`);
+          }
+          const arrayBuf = await res.arrayBuffer();
+          base64Content = Buffer.from(arrayBuf).toString('base64');
+          if (urlCache) {
+            urlCache.set(att.url, base64Content);
+          }
         }
-        const arrayBuf = await res.arrayBuffer();
         hydrated.push({
           filename: att.filename || 'attachment.pdf',
           mimeType: att.mimeType || 'application/pdf',
-          content: Buffer.from(arrayBuf).toString('base64'),
+          content: base64Content,
           url: att.url,
           publicId: att.publicId || null,
           assetId: att.assetId || null,
         });
       } catch (err) {
-        console.error(`Failed to hydrate dynamic attachment "${att.filename}" from ${att.url}:`, err.message);
-        throw new Error(`Failed to load dynamic attachment "${att.filename}": ${err.message}`);
+        console.error(`Failed to hydrate attachment "${att.filename}" from ${att.url}:`, err.message);
+        throw new Error(`Failed to load attachment "${att.filename}": ${err.message}`);
       }
     }
   }
@@ -276,10 +285,18 @@ async function dispatchCampaign({
     campaignMeta.dynamicAttachmentsConfig?.skipUnmatched ?? true
   );
 
+  // Extract shared/common attachment (one attachment for all) if present
+  const sharedAttachments = Array.isArray(campaignMeta.sharedAttachments)
+    ? campaignMeta.sharedAttachments
+    : (campaignMeta.sharedAttachment
+        ? [campaignMeta.sharedAttachment]
+        : (Array.isArray(campaignMeta.attachments) ? campaignMeta.attachments : []));
+
   // Deduplicate and build interpolated payloads per recipient
   const seenEmails = new Set();
   const personalizedRecipients = [];
   const skippedRecipients = [];
+  const attachmentUrlCache = new Map();
 
   for (const r of rawRecipients) {
     if (!r.email) continue;
@@ -287,10 +304,10 @@ async function dispatchCampaign({
     if (seenEmails.has(cleanEmail)) continue;
     seenEmails.add(cleanEmail);
 
-    const rawAttachments = r.attachments || r.customFields?.attachments || [];
+    const recipientDynamicAttachments = r.attachments || r.customFields?.attachments || [];
 
     // If campaign has dynamic attachments and user chose to skip recipients missing attachment
-    if (hasDynamicAttachments && skipUnmatched && rawAttachments.length === 0) {
+    if (hasDynamicAttachments && skipUnmatched && recipientDynamicAttachments.length === 0) {
       skippedRecipients.push({
         email: cleanEmail,
         name: r.name || 'Member',
@@ -303,6 +320,9 @@ async function dispatchCampaign({
       continue;
     }
 
+    // Combine shared attachment (same for all) + dynamic attachments (personalized per recipient)
+    const combinedRawAttachments = [...sharedAttachments, ...recipientDynamicAttachments];
+
     const interpSubject = renderTemplate(campaign.subject, r);
     const interpBody = renderTemplate(campaign.body, r);
     const htmlBody = formatEmailHtml({
@@ -312,7 +332,7 @@ async function dispatchCampaign({
       committeeName: r.committeeName,
     });
 
-    const hydratedAttachments = await hydrateAttachmentBuffers(rawAttachments);
+    const hydratedAttachments = await hydrateAttachmentBuffers(combinedRawAttachments, attachmentUrlCache);
 
     personalizedRecipients.push({
       email: cleanEmail,
@@ -362,10 +382,23 @@ async function dispatchCampaign({
     })),
   ];
 
-  // Automatic cleanup of staged dynamic attachments to preserve storage
-  if (hasDynamicAttachments) {
+  // Automatic cleanup of staged dynamic or shared attachments to preserve storage
+  const hasStagedAttachments = hasDynamicAttachments || sharedAttachments.length > 0;
+  if (hasStagedAttachments) {
     try {
       const filesToClean = [];
+      // Clean shared attachments
+      for (const a of sharedAttachments) {
+        if (a && (a.assetId || a.publicId || a.url)) {
+          filesToClean.push({
+            fileAssetId: a.assetId || null,
+            cloudinaryPublicId: a.publicId || null,
+            secureUrl: a.url || null,
+            resourceType: 'raw',
+          });
+        }
+      }
+      // Clean dynamic recipient attachments
       for (const r of rawRecipients) {
         const atts = r.attachments || r.customFields?.attachments || [];
         for (const a of atts) {
