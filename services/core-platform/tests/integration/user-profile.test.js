@@ -250,6 +250,89 @@ test('user profile: PATCH /core/me/profile updates bio, university, faculty, dep
   }
 });
 
+test('user profile: updating with empty membershipId saves as null and does not violate unique index', async () => {
+  await prepareDatabase();
+  const server = await createServer(app);
+
+  try {
+    const patchPath = '/core/me/profile';
+
+    // 1. User 1 updates with empty membershipId ""
+    const headersUser1 = signedHeaders({
+      method: 'PATCH',
+      path: patchPath,
+      userId: IDS.users.memberAi,
+      userRole: 'member',
+      scopeType: 'committee',
+      scopeId: IDS.committees.ai,
+    });
+
+    const res1 = await fetch(`${getBaseUrl(server)}${patchPath}`, {
+      method: 'PATCH',
+      headers: headersUser1,
+      body: JSON.stringify({
+        membershipId: '',
+        name: 'Member AI User',
+      }),
+    });
+
+    assert.equal(res1.status, 200);
+    const body1 = await res1.json();
+    assert.equal(body1.ok, true);
+    assert.equal(body1.profile.membershipId, null);
+
+    // 2. User 2 updates with empty membershipId "" (must NOT trigger unique constraint collision)
+    const headersUser2 = signedHeaders({
+      method: 'PATCH',
+      path: patchPath,
+      userId: IDS.users.memberWeb,
+      userRole: 'member',
+      scopeType: 'committee',
+      scopeId: IDS.committees.web,
+    });
+
+    const res2 = await fetch(`${getBaseUrl(server)}${patchPath}`, {
+      method: 'PATCH',
+      headers: headersUser2,
+      body: JSON.stringify({
+        membershipId: '   ',
+        name: 'Member Web User',
+      }),
+    });
+
+    assert.equal(res2.status, 200);
+    const body2 = await res2.json();
+    assert.equal(body2.ok, true);
+    assert.equal(body2.profile.membershipId, null);
+
+    // 3. User 1 sets a valid membershipId
+    const resValid = await fetch(`${getBaseUrl(server)}${patchPath}`, {
+      method: 'PATCH',
+      headers: headersUser1,
+      body: JSON.stringify({
+        membershipId: 'IEEE-12345678',
+      }),
+    });
+    assert.equal(resValid.status, 200);
+    const bodyValid = await resValid.json();
+    assert.equal(bodyValid.profile.membershipId, 'IEEE-12345678');
+
+    // 4. User 2 attempts to set the exact same membershipId -> returns 409
+    const resDup = await fetch(`${getBaseUrl(server)}${patchPath}`, {
+      method: 'PATCH',
+      headers: headersUser2,
+      body: JSON.stringify({
+        membershipId: 'IEEE-12345678',
+      }),
+    });
+    assert.equal(resDup.status, 409);
+    const bodyDup = await resDup.json();
+    assert.match(bodyDup.message || bodyDup.error || '', /IEEE Membership ID already exists/i);
+  } finally {
+    server.close();
+  }
+});
+
 test('user avatar: updating and clearing avatar clears cloudinary IDs and queues previous avatar', async () => {
   await prepareDatabase();
   const usersRepository = require('../../src/repositories/usersRepository');

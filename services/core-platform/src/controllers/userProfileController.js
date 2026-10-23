@@ -263,21 +263,70 @@ async function updateMyPublicProfile(req, res, next) {
       };
     }
 
+    // Build dynamic UPDATE query based on provided fields
+    const updates = [];
+    const values = [];
+    let paramIdx = 1;
+
+    if (name !== undefined) {
+      const cleanName = typeof name === 'string' ? name.trim() : '';
+      if (!cleanName) {
+        throw new HttpError(400, 'Full Name cannot be empty');
+      }
+      updates.push(`name = $${paramIdx++}`);
+      values.push(cleanName);
+    }
+
+    if (membershipId !== undefined) {
+      const cleanMemId = typeof membershipId === 'string' && membershipId.trim() ? membershipId.trim() : null;
+      updates.push(`membership_id = $${paramIdx++}`);
+      values.push(cleanMemId);
+    }
+
+    if (bio !== undefined) {
+      updates.push(`bio = $${paramIdx++}`);
+      values.push(typeof bio === 'string' ? bio.trim() : (bio || null));
+    }
+
+    if (university !== undefined) {
+      updates.push(`university = $${paramIdx++}`);
+      values.push(typeof university === 'string' ? university.trim() : (university || null));
+    }
+
+    if (faculty !== undefined) {
+      updates.push(`faculty = $${paramIdx++}`);
+      values.push(typeof faculty === 'string' ? faculty.trim() : (faculty || null));
+    }
+
+    if (department !== undefined) {
+      updates.push(`department = $${paramIdx++}`);
+      values.push(typeof department === 'string' ? department.trim() : (department || null));
+    }
+
+    if (academicYear !== undefined) {
+      updates.push(`academic_year = $${paramIdx++}`);
+      values.push(typeof academicYear === 'string' ? academicYear.trim() : (academicYear || null));
+    }
+
+    if (phone !== undefined) {
+      updates.push(`phone = $${paramIdx++}`);
+      values.push(typeof phone === 'string' ? phone.trim() : (phone || null));
+    }
+
+    if (cleanSocialLinks !== null) {
+      updates.push(`social_links = $${paramIdx++}`);
+      values.push(JSON.stringify(cleanSocialLinks));
+    }
+
+    updates.push('updated_at = NOW()');
+    values.push(callerUserId);
+    const callerIdParam = `$${paramIdx++}`;
+
     const updateRes = await query(
       `
         UPDATE users
-        SET
-          name = CASE WHEN $1::text IS NOT NULL AND $1::text != '' THEN $1::text ELSE name END,
-          membership_id = CASE WHEN $2::text IS NOT NULL THEN $2::text ELSE membership_id END,
-          bio = CASE WHEN $3::text IS NOT NULL THEN $3::text ELSE bio END,
-          university = CASE WHEN $4::text IS NOT NULL THEN $4::text ELSE university END,
-          faculty = CASE WHEN $5::text IS NOT NULL THEN $5::text ELSE faculty END,
-          department = CASE WHEN $6::text IS NOT NULL THEN $6::text ELSE department END,
-          academic_year = CASE WHEN $7::text IS NOT NULL THEN $7::text ELSE academic_year END,
-          phone = CASE WHEN $8::text IS NOT NULL THEN $8::text ELSE phone END,
-          social_links = CASE WHEN $9::jsonb IS NOT NULL THEN $9::jsonb ELSE social_links END,
-          updated_at = NOW()
-        WHERE id = $10 AND is_active = TRUE
+        SET ${updates.join(',\n          ')}
+        WHERE id = ${callerIdParam} AND is_active = TRUE
         RETURNING
           id,
           name,
@@ -293,18 +342,7 @@ async function updateMyPublicProfile(req, res, next) {
           social_links,
           updated_at
       `,
-      [
-        name !== undefined ? name.trim() : null,
-        membershipId !== undefined ? membershipId.trim() : null,
-        bio !== undefined ? bio : null,
-        university !== undefined ? university : null,
-        faculty !== undefined ? faculty : null,
-        department !== undefined ? department : null,
-        academicYear !== undefined ? academicYear : null,
-        phone !== undefined ? phone : null,
-        cleanSocialLinks ? JSON.stringify(cleanSocialLinks) : null,
-        callerUserId,
-      ]
+      values
     );
 
     if (updateRes.rows.length === 0) {
@@ -344,6 +382,13 @@ async function updateMyPublicProfile(req, res, next) {
       },
     });
   } catch (err) {
+    if (err.code === '23505') {
+      const detail = String(err.detail || err.message || '');
+      if (detail.includes('membership_id') || err.constraint === 'idx_users_membership_id') {
+        return next(new HttpError(409, 'An account with this IEEE Membership ID already exists.'));
+      }
+      return next(new HttpError(409, 'Duplicate value violates unique constraint.'));
+    }
     return next(err);
   }
 }
