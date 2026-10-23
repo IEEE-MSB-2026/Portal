@@ -357,8 +357,6 @@ services:
       EMAIL_SERVICE_URL: http://email-api:3060
       EMAIL_SERVICE_AUTH_TOKEN: ${EMAIL_SERVICE_AUTH_TOKEN}
     depends_on:
-      event-mongo:
-        condition: service_healthy
       portal-redis:
         condition: service_healthy
     healthcheck:
