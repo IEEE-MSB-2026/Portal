@@ -37,8 +37,9 @@ fi
 
 # Configuration & Defaults
 POSTGRES_USER="${POSTGRES_USER:-postgres}"
-POSTGRES_DB="${POSTGRES_DB:-ieee_core}"
+POSTGRES_DB="${POSTGRES_DB:-ieee_portal}"
 MONGO_DB="${MONGO_DB:-ieee-registration}"
+MONGO_URI="${MONGO_URI:-}"
 RETENTION_DAYS="${RETENTION_DAYS:-7}"
 ALERT_EMAIL="yuossefbakier@gmail.com"
 EMAIL_SERVICE_URL="${EMAIL_SERVICE_URL:-http://127.0.0.1:3060/email/send}"
@@ -126,12 +127,23 @@ docker compose -f "$COMPOSE_FILE" exec -T core-postgres pg_dump \
   "$POSTGRES_DB" > "$TMP_DIR/postgres_${POSTGRES_DB}.sql"
 log "✅ PostgreSQL dump completed ($(du -h "$TMP_DIR/postgres_${POSTGRES_DB}.sql" | cut -f1))"
 
-# Step 2: Dump MongoDB (event-mongo)
-log "2/5: Dumping MongoDB database ($MONGO_DB) from event-mongo..."
-docker compose -f "$COMPOSE_FILE" exec -T event-mongo mongodump \
-  --db "$MONGO_DB" \
-  --archive --gzip > "$TMP_DIR/mongo_${MONGO_DB}.archive.gz"
-log "✅ MongoDB dump completed ($(du -h "$TMP_DIR/mongo_${MONGO_DB}.archive.gz" | cut -f1))"
+# Step 2: Dump MongoDB (Atlas or local event-mongo)
+if [[ -n "$MONGO_URI" && "$MONGO_URI" == mongodb* && "$MONGO_URI" != *"event-mongo"* ]]; then
+  MASKED_URI="$(echo "$MONGO_URI" | sed -E 's/(mongodb(\+srv)?:\/\/[^:]+:)[^@]+(@)/\1****\3/')"
+  log "2/5: Dumping MongoDB database from Atlas ($MASKED_URI)..."
+  docker run --rm mongo:7 mongodump \
+    --uri="$MONGO_URI" \
+    --archive --gzip > "$TMP_DIR/mongo_${MONGO_DB}.archive.gz"
+  log "✅ MongoDB Atlas dump completed ($(du -h "$TMP_DIR/mongo_${MONGO_DB}.archive.gz" | cut -f1))"
+elif docker compose -f "$COMPOSE_FILE" ps --status=running 2>/dev/null | grep -q "event-mongo"; then
+  log "2/5: Dumping MongoDB database ($MONGO_DB) from local event-mongo container..."
+  docker compose -f "$COMPOSE_FILE" exec -T event-mongo mongodump \
+    --db "$MONGO_DB" \
+    --archive --gzip > "$TMP_DIR/mongo_${MONGO_DB}.archive.gz"
+  log "✅ MongoDB local dump completed ($(du -h "$TMP_DIR/mongo_${MONGO_DB}.archive.gz" | cut -f1))"
+else
+  log "⚠️ Neither external MONGO_URI nor running local event-mongo found. Skipping MongoDB dump."
+fi
 
 # Step 3: Bundle and Compress into TAR Archive
 log "3/5: Compressing dumps into $LOCAL_ARCHIVE_PATH..."
