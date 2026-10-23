@@ -75,6 +75,8 @@ services:
     image: mongo:7
     container_name: event-mongo
     restart: unless-stopped
+    command: ["mongod", "--wiredTigerCacheSizeGB", "0.25"]
+    profiles: ["mongo"]
     networks:
       - portal-network
     volumes:
@@ -116,6 +118,7 @@ services:
       GATEWAY_SHARED_SECRET: ${GATEWAY_SHARED_SECRET}
       EMAIL_SERVICE_URL: http://email-api:3060
       EMAIL_SERVICE_AUTH_TOKEN: ${EMAIL_SERVICE_AUTH_TOKEN}
+      EMAIL_SERVICE_TIMEOUT_MS: ${EMAIL_SERVICE_TIMEOUT_MS:-15000}
       IAM_SERVICE_URL: http://gateway:4000
       IAM_SERVICE_AUTH_TOKEN: ${IAM_SERVICE_AUTH_TOKEN}
       EVENT_REGISTER_SERVICE_URL: http://event-app:5050
@@ -219,6 +222,7 @@ services:
       LOG_LEVEL: info
       RUN_API: "true"
       RUN_CONSUMER: "true"
+      EMAIL_BODY_LIMIT: ${EMAIL_BODY_LIMIT:-15mb}
       EMAIL_SERVICE_AUTH_TOKEN: ${EMAIL_SERVICE_AUTH_TOKEN}
       REDIS_URL: redis://:${REDIS_PASSWORD}@portal-redis:6379/0
       REDIS_PASSWORD: ${REDIS_PASSWORD}
@@ -343,7 +347,7 @@ services:
     environment:
       PORT: 5050
       NODE_ENV: production
-      MONGO_URI: mongodb://event-mongo:27017/ieee-registration
+      # MONGO_URI: mongodb://event-mongo:27017/ieee-registration
       REDIS_URL: redis://:${REDIS_PASSWORD}@portal-redis:6379/1
       REDIS_PASSWORD: ${REDIS_PASSWORD}
       REDIS_STREAM_EMAIL: internal
@@ -357,8 +361,6 @@ services:
         condition: service_healthy
       portal-redis:
         condition: service_healthy
-    volumes:
-      - event_uploads:/app/uploads
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:5050/api/v1/health"]
       interval: 60s
@@ -381,4 +383,3 @@ volumes:
   core_pg_data:
   event_mongo_data:
   file_uploads:
-  event_uploads:

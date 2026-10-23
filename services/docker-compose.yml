@@ -218,8 +218,6 @@ services:
         condition: service_healthy
       event-redis:
         condition: service_healthy
-    volumes:
-      - event_uploads:/app/uploads
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:5050/api/v1/health"]
       interval: 15s
@@ -259,6 +257,5 @@ services:
 volumes:
   email_redis_data:
   event_mongo_data:
-  event_uploads:
   file_uploads:
   core_pg_data:
