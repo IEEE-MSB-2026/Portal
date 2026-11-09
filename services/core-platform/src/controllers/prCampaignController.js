@@ -698,12 +698,50 @@ async function sendCampaign(req, res, next) {
       });
     }
 
-    const dispatch = await prCampaignDispatchService.dispatchCampaign({
-      requestId: req.requestId,
-      route: req.originalUrl || `${req.baseUrl || ''}${req.path || ''}`,
-      campaign: lockedCampaign,
-      maxRecipients: config.pr?.campaignMaxRecipients || 5000,
-    });
+    let dispatch;
+    try {
+      dispatch = await prCampaignDispatchService.dispatchCampaign({
+        requestId: req.requestId,
+        route: req.originalUrl || `${req.baseUrl || ''}${req.path || ''}`,
+        campaign: lockedCampaign,
+        maxRecipients: config.pr?.campaignMaxRecipients || 5000,
+      });
+    } catch (dispatchErr) {
+      logger.error({
+        event: 'pr.campaign.dispatch_exception',
+        requestId: req.requestId,
+        campaignId,
+        committeeId: campaign.committee_id,
+        actorUserId: req.identity.externalUserId,
+        err: dispatchErr,
+      }, 'Unexpected error during PR campaign dispatch execution');
+
+      const failedCampaign = await prCampaignsRepository.markCampaignFailed({
+        campaignId,
+        dispatchRequestId,
+        recipientCount: campaign.recipient_count || 0,
+        sentCount: campaign.sent_count || 0,
+        failedCount: campaign.recipient_count || 1,
+        error: dispatchErr.message || 'dispatch_error',
+        actorUserRefId: req.identity.userRefId,
+      });
+
+      await prCampaignsRepository.createDispatchLog({
+        campaignId,
+        dispatchRequestId,
+        status: 'failed',
+        recipientCount: campaign.recipient_count || 0,
+        sentCount: campaign.sent_count || 0,
+        failedCount: campaign.recipient_count || 1,
+        error: dispatchErr.message || 'dispatch_error',
+        logs: [{ status: 'failed', error: dispatchErr.message }],
+      });
+
+      return res.status(500).json({
+        error: `Campaign dispatch error: ${dispatchErr.message || 'unexpected_error'}`,
+        campaign: failedCampaign ? toCampaignResponse(failedCampaign) : toCampaignResponse(campaign),
+      });
+    }
 
     if (!dispatch.ok && dispatch.reason === 'max_recipients_exceeded') {
       await prCampaignsRepository.updateCampaign({

@@ -90,6 +90,36 @@ async function pollAndDispatchDueCampaigns() {
           campaignId: campaign.id,
           err,
         }, `Error processing scheduled campaign ${campaign.id}`);
+
+        try {
+          const reqId = campaign.dispatch_request_id || `scheduler-${campaign.id}`;
+          await prCampaignsRepository.markCampaignFailed({
+            campaignId: campaign.id,
+            dispatchRequestId: reqId,
+            recipientCount: campaign.recipient_count || 0,
+            sentCount: campaign.sent_count || 0,
+            failedCount: campaign.recipient_count || 1,
+            error: err.message || 'scheduler_dispatch_error',
+            actorUserId: campaign.created_by_user_id,
+          });
+
+          await prCampaignsRepository.createDispatchLog({
+            campaignId: campaign.id,
+            dispatchRequestId: reqId,
+            status: 'failed',
+            recipientCount: campaign.recipient_count || 0,
+            sentCount: campaign.sent_count || 0,
+            failedCount: campaign.recipient_count || 1,
+            error: err.message || 'scheduler_dispatch_error',
+            logs: [{ status: 'failed', error: err.message }],
+          });
+        } catch (failErr) {
+          logger.error({
+            event: 'pr.campaign.scheduler.mark_failed_error',
+            campaignId: campaign.id,
+            err: failErr,
+          }, `Failed to mark scheduled campaign ${campaign.id} as failed after exception`);
+        }
       }
     }
   } catch (error) {
