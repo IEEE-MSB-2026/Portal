@@ -61,9 +61,12 @@ function toApplicationResponse(row) {
     committeeId: row.committee_id,
     applicantUserRefId: row.applicant_user_ref_id,
     applicantUserId: row.applicant_external_user_id,
+    applicantName: row.applicant_name || null,
     applicantEmail: row.applicant_email,
     answers: row.answers,
     currentStage: row.current_stage,
+    rejectionNotes: row.rejection_notes || null,
+    rejectedAt: row.rejected_at || null,
     welcomeEmailSent: Boolean(row.welcome_email_sent),
     welcomeEmailSentAt: row.welcome_email_sent_at || null,
     submittedAt: row.submitted_at,
@@ -268,10 +271,32 @@ async function listApplications(req, res, next) {
       }
     }
 
-    const includeAll = req.query.all === 'true' || req.query.includeAll === 'true';
-    const includeRejected = includeAll || req.query.includeRejected === 'true' || req.query.rejected === 'true';
-    const includeAccepted = includeAll || req.query.includeAccepted === 'true' || req.query.accepted === 'true';
+    const viewRaw = typeof req.query.view === 'string' ? req.query.view.trim().toLowerCase() : '';
+    const VALID_VIEWS = new Set(['active', 'rejected', 'accepted', 'all']);
+    let view = 'active';
+
+    if (viewRaw) {
+      if (!VALID_VIEWS.has(viewRaw)) {
+        throw new HttpError(400, 'view must be one of active, rejected, accepted, all');
+      }
+      view = viewRaw;
+    } else if (req.query.all === 'true' || req.query.includeAll === 'true') {
+      view = 'all';
+    } else if (req.query.rejected === 'true') {
+      view = 'rejected';
+    } else if (req.query.accepted === 'true') {
+      view = 'accepted';
+    }
+
+    const includeRejected = view === 'rejected' || view === 'all' || req.query.includeRejected === 'true';
+    const includeAccepted = view === 'accepted' || view === 'all' || req.query.includeAccepted === 'true';
+
     const stageRaw = typeof req.query.stage === 'string' ? req.query.stage.trim() : '';
+    if (stageRaw && !ALLOWED_STAGES.has(stageRaw)) {
+      throw new HttpError(400, 'Invalid stage parameter');
+    }
+
+    const searchRaw = typeof req.query.search === 'string' ? req.query.search.trim() : '';
 
     const hasLimitParam = req.query.limit !== undefined && req.query.limit !== 'all';
     const hasPageParam = req.query.page !== undefined;
@@ -302,6 +327,8 @@ async function listApplications(req, res, next) {
       committeeId: targetCommitteeId,
       campaignId: campaign ? campaign.id : null,
       stage: stageRaw || null,
+      view,
+      search: searchRaw || null,
       includeRejected,
       includeAccepted,
       limit,

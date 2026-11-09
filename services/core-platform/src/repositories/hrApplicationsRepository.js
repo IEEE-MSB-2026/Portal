@@ -84,7 +84,9 @@ async function updateApplicationStage(applicationId, stage) {
 async function listApplications({
   committeeId,
   campaignId,
-  stage,
+  stage = null,
+  view = 'active',
+  search = null,
   includeRejected = false,
   includeAccepted = false,
   limit = null,
@@ -101,16 +103,38 @@ async function listApplications({
     values.push(campaignId);
     where.push(`a.campaign_id = $${values.length}`);
   }
+
+  // Stage & View filtering:
   if (stage) {
     values.push(stage);
     where.push(`a.current_stage = $${values.length}::hr_application_stage_type`);
+  } else if (view === 'rejected') {
+    where.push(`a.current_stage = 'rejected'`);
+  } else if (view === 'accepted') {
+    where.push(`a.current_stage = 'accepted'`);
+  } else if (view === 'all') {
+    // Return all stages without exclusion
   } else {
+    // view === 'active' (default) or backward-compatible flags
     if (!includeRejected) {
       where.push(`a.current_stage != 'rejected'`);
     }
     if (!includeAccepted) {
       where.push(`a.current_stage != 'accepted'`);
     }
+  }
+
+  if (search && typeof search === 'string' && search.trim()) {
+    values.push(`%${search.trim()}%`);
+    const searchParam = `$${values.length}`;
+    where.push(`(
+      u.name ILIKE ${searchParam} OR
+      u.email ILIKE ${searchParam} OR
+      (a.answers->>'fullName') ILIKE ${searchParam} OR
+      (a.answers->>'email') ILIKE ${searchParam} OR
+      (a.answers->>'name') ILIKE ${searchParam} OR
+      cc.name ILIKE ${searchParam}
+    )`);
   }
 
   const whereClause = where.length ? `WHERE ${where.join(' AND ')}` : '';
@@ -120,6 +144,8 @@ async function listApplications({
       SELECT COUNT(*)::int AS total
       FROM hr_applications a
       LEFT JOIN hr_campaigns c ON c.id = a.campaign_id
+      LEFT JOIN committees cc ON cc.id = COALESCE(a.committee_id, c.committee_id)
+      LEFT JOIN users u ON u.id = a.applicant_user_id
       ${whereClause}
     `,
     values
@@ -149,11 +175,20 @@ async function listApplications({
         cc.name AS committee_name,
         u.id AS applicant_external_user_id,
         u.name AS applicant_name,
-        u.email AS applicant_email
+        u.email AS applicant_email,
+        rej.rejection_notes,
+        rej.rejected_at
       FROM hr_applications a
       LEFT JOIN hr_campaigns c ON c.id = a.campaign_id
       LEFT JOIN committees cc ON cc.id = COALESCE(a.committee_id, c.committee_id)
       LEFT JOIN users u ON u.id = a.applicant_user_id
+      LEFT JOIN LATERAL (
+        SELECT notes AS rejection_notes, created_at AS rejected_at
+        FROM hr_application_stage_log
+        WHERE application_id = a.id AND to_stage = 'rejected'
+        ORDER BY created_at DESC
+        LIMIT 1
+      ) rej ON a.current_stage = 'rejected'
       ${whereClause}
       ORDER BY a.submitted_at DESC, a.id DESC
       ${limitOffsetClause}
