@@ -81,8 +81,16 @@ async function updateApplicationStage(applicationId, stage) {
   return result.rows[0] || null;
 }
 
-async function listApplications({ committeeId, campaignId, stage, includeRejected = false, includeAccepted = false, limit = 50 }) {
-  const values = [limit];
+async function listApplications({
+  committeeId,
+  campaignId,
+  stage,
+  includeRejected = false,
+  includeAccepted = false,
+  limit = null,
+  offset = 0,
+}) {
+  const values = [];
   const where = [];
 
   if (committeeId) {
@@ -107,6 +115,31 @@ async function listApplications({ committeeId, campaignId, stage, includeRejecte
 
   const whereClause = where.length ? `WHERE ${where.join(' AND ')}` : '';
 
+  const countResult = await query(
+    `
+      SELECT COUNT(*)::int AS total
+      FROM hr_applications a
+      LEFT JOIN hr_campaigns c ON c.id = a.campaign_id
+      ${whereClause}
+    `,
+    values
+  );
+  const total = countResult.rows[0]?.total || 0;
+
+  let limitOffsetClause = '';
+  const dataValues = [...values];
+  if (limit !== null && limit !== undefined) {
+    dataValues.push(limit);
+    limitOffsetClause += ` LIMIT $${dataValues.length}`;
+    if (offset && offset > 0) {
+      dataValues.push(offset);
+      limitOffsetClause += ` OFFSET $${dataValues.length}`;
+    }
+  } else if (offset && offset > 0) {
+    dataValues.push(offset);
+    limitOffsetClause += ` OFFSET $${dataValues.length}`;
+  }
+
   const result = await query(
     `
       SELECT
@@ -123,12 +156,12 @@ async function listApplications({ committeeId, campaignId, stage, includeRejecte
       LEFT JOIN users u ON u.id = a.applicant_user_id
       ${whereClause}
       ORDER BY a.submitted_at DESC, a.id DESC
-      LIMIT $1
+      ${limitOffsetClause}
     `,
-    values
+    dataValues
   );
 
-  return result.rows;
+  return { rows: result.rows, total };
 }
 
 async function acceptApplicationWithChecklist({

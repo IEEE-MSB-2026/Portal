@@ -221,7 +221,6 @@ async function listApplications(req, res, next) {
   try {
     const campaignIdRaw = typeof req.query.campaignId === 'string' ? req.query.campaignId.trim() : '';
     const committeeIdRaw = typeof req.query.committeeId === 'string' ? req.query.committeeId.trim() : '';
-    const limit = parseLimit(req.query.limit, 50, 500);
 
     let campaign = null;
     let targetCommitteeId = null;
@@ -274,17 +273,54 @@ async function listApplications(req, res, next) {
     const includeAccepted = includeAll || req.query.includeAccepted === 'true' || req.query.accepted === 'true';
     const stageRaw = typeof req.query.stage === 'string' ? req.query.stage.trim() : '';
 
-    const applications = await hrApplicationsRepository.listApplications({
+    const hasLimitParam = req.query.limit !== undefined && req.query.limit !== 'all';
+    const hasPageParam = req.query.page !== undefined;
+
+    let limit = null;
+    let page = 1;
+    let offset = 0;
+
+    if (hasLimitParam) {
+      limit = parseLimit(req.query.limit, 50, 5000);
+    }
+
+    if (hasPageParam) {
+      const parsedPage = Number.parseInt(req.query.page, 10);
+      if (!Number.isInteger(parsedPage) || parsedPage < 1) {
+        throw new HttpError(400, 'page must be an integer greater than or equal to 1');
+      }
+      page = parsedPage;
+      if (!hasLimitParam) {
+        limit = 50;
+      }
+      offset = (page - 1) * limit;
+    } else if (req.query.offset !== undefined) {
+      offset = Math.max(0, Number.parseInt(req.query.offset, 10) || 0);
+    }
+
+    const { rows, total } = await hrApplicationsRepository.listApplications({
       committeeId: targetCommitteeId,
       campaignId: campaign ? campaign.id : null,
       stage: stageRaw || null,
       includeRejected,
       includeAccepted,
       limit,
+      offset,
     });
 
+    const totalPages = limit ? Math.ceil(total / limit) : 1;
+
     return res.status(200).json({
-      applications: applications.map((row) => toApplicationResponse(row)),
+      applications: rows.map((row) => toApplicationResponse(row)),
+      total,
+      pagination: {
+        total,
+        page,
+        limit,
+        totalPages,
+        hasNextPage: limit ? page < totalPages : false,
+        hasPrevPage: limit ? page > 1 : false,
+      },
     });
   } catch (error) {
     return next(error);

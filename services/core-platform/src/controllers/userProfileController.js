@@ -248,7 +248,7 @@ async function updateMyPublicProfile(req, res, next) {
       academicYear,
       phone,
       socialLinks,
-    } = req.body;
+    } = req.body || {};
 
     // Validate socialLinks if provided
     let cleanSocialLinks = null;

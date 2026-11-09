@@ -258,14 +258,17 @@ test('user profile: updating with empty membershipId saves as null and does not 
     const patchPath = '/core/me/profile';
 
     // 1. User 1 updates with empty membershipId ""
-    const headersUser1 = signedHeaders({
-      method: 'PATCH',
-      path: patchPath,
-      userId: IDS.users.memberAi,
-      userRole: 'member',
-      scopeType: 'committee',
-      scopeId: IDS.committees.ai,
-    });
+    const headersUser1 = {
+      ...signedHeaders({
+        method: 'PATCH',
+        path: patchPath,
+        userId: IDS.users.memberAi,
+        userRole: 'member',
+        scopeType: 'committee',
+        scopeId: IDS.committees.ai,
+      }),
+      'content-type': 'application/json',
+    };
 
     const res1 = await fetch(`${getBaseUrl(server)}${patchPath}`, {
       method: 'PATCH',
@@ -282,14 +285,17 @@ test('user profile: updating with empty membershipId saves as null and does not 
     assert.equal(body1.profile.membershipId, null);
 
     // 2. User 2 updates with empty membershipId "" (must NOT trigger unique constraint collision)
-    const headersUser2 = signedHeaders({
-      method: 'PATCH',
-      path: patchPath,
-      userId: IDS.users.memberWeb,
-      userRole: 'member',
-      scopeType: 'committee',
-      scopeId: IDS.committees.web,
-    });
+    const headersUser2 = {
+      ...signedHeaders({
+        method: 'PATCH',
+        path: patchPath,
+        userId: IDS.users.memberWeb,
+        userRole: 'member',
+        scopeType: 'committee',
+        scopeId: IDS.committees.web,
+      }),
+      'content-type': 'application/json',
+    };
 
     const res2 = await fetch(`${getBaseUrl(server)}${patchPath}`, {
       method: 'PATCH',

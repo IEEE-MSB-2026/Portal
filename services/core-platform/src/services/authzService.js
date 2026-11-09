@@ -121,6 +121,27 @@ async function isHrCommitteeLead(identity) {
   return false;
 }
 
+async function isCommitteeLead(identity, committeeId) {
+  if (!identity || !committeeId) return false;
+  if (isPrivilegedGlobalAccess(identity)) return true;
+
+  if (
+    identity.scopeType === 'committee' &&
+    identity.scopeId === committeeId &&
+    (identity.role === 'lead' || identity.role === 'chair')
+  ) {
+    return true;
+  }
+
+  const currentUserId = identity?.userRefId || identity?.userId || identity?.externalUserId;
+  if (currentUserId) {
+    const role = await committeesRepository.getMembershipRole(currentUserId, committeeId);
+    if (role === 'lead' || role === 'chair') return true;
+  }
+
+  return false;
+}
+
 async function canManageHrCommittee({ identity, membershipRole }) {
   if (isPrivilegedGlobalAccess(identity)) return true;
   if (await isHrCommitteeLead(identity)) return true;
@@ -284,6 +305,7 @@ module.exports = {
   canSubmitHrApplication,
   canUpdateTaskStatus,
   getMembershipRoleForCommittee,
+  isCommitteeLead,
   isGlobalAccess,
   isHrCommitteeLead,
   isMediaCommitteeLead,
