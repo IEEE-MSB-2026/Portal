@@ -86,6 +86,8 @@ const config = {
   databaseUrl: requireEnv('DATABASE_URL'),
   gatewaySharedSecret: process.env.CORE_GATEWAY_SHARED_SECRET || process.env.GATEWAY_SHARED_SECRET || requireEnv('CORE_GATEWAY_SHARED_SECRET'),
   gatewayMaxSkewSeconds: 60,
+  bodyLimit: optionalEnv('BODY_LIMIT') || optionalEnv('CORE_BODY_LIMIT') || '1mb',
+  prCampaignBodyLimit: optionalEnv('PR_CAMPAIGN_BODY_LIMIT') || '10mb',
   notification: {
     emailServiceUrl: parseOptionalUrl('EMAIL_SERVICE_URL'),
     emailServiceAuthToken: optionalEnv('EMAIL_SERVICE_AUTH_TOKEN'),

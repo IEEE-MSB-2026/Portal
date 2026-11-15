@@ -1,4 +1,5 @@
 const express = require('express');
+const config = require('./config');
 
 const requestIdMiddleware = require('./middlewares/requestId');
 const errorHandler = require('./middlewares/errorHandler');
@@ -8,7 +9,10 @@ const coreRoutes = require('./routes/coreRoutes');
 
 const app = express();
 
-app.use(express.json());
+app.use('/core/pr/campaigns', express.json({ limit: config.prCampaignBodyLimit }));
+app.use('/core/pr/campaigns', express.urlencoded({ extended: true, limit: config.prCampaignBodyLimit }));
+app.use(express.json({ limit: config.bodyLimit }));
+app.use(express.urlencoded({ extended: true, limit: config.bodyLimit }));
 app.use(requestIdMiddleware);
 
 app.use(healthRoutes);

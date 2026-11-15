@@ -19,4 +19,6 @@ module.exports = {
   googleClientId: process.env.GOOGLE_CLIENT_ID || null,
   corsOrigin: process.env.CORS_ORIGIN || '*',
   frontendUrl: process.env.FRONTEND_URL || process.env.PORTAL_BASE_URL || 'http://localhost:5173',
+  bodyLimit: process.env.BODY_LIMIT || process.env.GATEWAY_BODY_LIMIT || '1mb',
+  prCampaignBodyLimit: process.env.PR_CAMPAIGN_BODY_LIMIT || '10mb',
 };
